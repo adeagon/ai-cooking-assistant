@@ -60,6 +60,10 @@ def resolve_recipe_reference(ref: str, last_cards: list) -> tuple[str, str] | No
     """
     ref = ref.strip().strip('"\'')
 
+    # Return None for empty reference
+    if not ref:
+        return None
+
     # Try as number first (1-indexed)
     if ref.isdigit():
         idx = int(ref) - 1

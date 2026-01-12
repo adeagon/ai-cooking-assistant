@@ -181,6 +181,7 @@ chain = build_chat_chain(
 | `src/memory/history_store.py` | 159 | Cooking history tracking |
 | `tests/test_feedback.py` | 179 | Unit tests for FeedbackStore (12 tests) |
 | `tests/test_history.py` | 162 | Unit tests for HistoryStore (10 tests) |
+| `tests/test_feedback_integration.py` | 516 | Integration tests for Phase 5 features (23 tests) |
 
 ## Files Modified
 
@@ -195,20 +196,27 @@ chain = build_chat_chain(
 
 ## Test Results
 
-**New Tests**: 22 (all passing)
-- FeedbackStore: 12 tests
+**New Tests**: 45 (all passing)
+- FeedbackStore: 12 unit tests
   - Add like/dislike/rating
   - Get liked/disliked IDs
   - Average rating calculation
   - Cuisine preference learning
-- HistoryStore: 10 tests
+- HistoryStore: 10 unit tests
   - Add cooked with/without notes
   - Recently cooked filtering by date
   - Cooking history retrieval
   - Cooking count
+- Integration: 23 integration tests
+  - Recipe reference resolver (9 tests): By number, by name, fuzzy matching
+  - Exclusion filtering (4 tests): Liked, disliked, cooked, combined
+  - Feedback workflows (3 tests): Like+rate, like+dislike, cook+like
+  - Cooking history (2 tests): Order, duplicate cooking
+  - Full recipe display (2 tests): Rendering, field validation
+  - End-to-end scenarios (3 tests): Complete feedback workflow, show+cook workflow, permanent exclusion
 
-**Total Tests**: 180 (158 Phase 1-4 + 22 Phase 5)
-- 180 passed
+**Total Tests**: 203 (158 Phase 1-4 + 45 Phase 5)
+- 203 passed
 - 4 skipped (integration tests requiring Ollama)
 - All regression tests passing
 

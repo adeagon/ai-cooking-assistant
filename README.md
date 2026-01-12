@@ -163,7 +163,7 @@ You: /cooked 1
 ### Run Tests
 
 ```bash
-# Run all tests (180 tests total: 82 Phase 1-3, 76 Phase 4, 22 Phase 5)
+# Run all tests (203 tests total: 82 Phase 1-3, 76 Phase 4, 45 Phase 5)
 pytest
 
 # Run retrieval tests only
@@ -175,8 +175,8 @@ pytest tests/test_rerank.py tests/test_recipe_cards.py -v
 # Run Phase 4 tests (memory + chains + integration + scenarios)
 pytest tests/test_memory.py tests/test_chains.py tests/test_chat_integration.py tests/test_chat_scenarios.py -v
 
-# Run Phase 5 tests (feedback + cooking history)
-pytest tests/test_feedback.py tests/test_history.py -v
+# Run Phase 5 tests (feedback + cooking history + integration)
+pytest tests/test_feedback.py tests/test_history.py tests/test_feedback_integration.py -v
 
 # Run chat scenario tests only
 pytest tests/test_chat_scenarios.py -v
@@ -189,10 +189,11 @@ pytest --cov=src
 ```
 
 **Test Suite** (Phase 5):
-- 180 total tests (all passing)
-- **Phase 5 New Tests (22)**:
+- 203 total tests (all passing)
+- **Phase 5 New Tests (45)**:
   - FeedbackStore (12): Like/dislike/rate, cuisine learning
   - HistoryStore (10): Cooking tracking, date filtering
+  - Integration (23): Recipe reference resolver, exclusion filtering, full workflows
 - **Phase 4 Tests (76)**:
   - Memory system (20): ProfileStore, SessionStore, RollingSummarizer
   - Chains (27): ConstraintExtractor, prompt formatters, gate logic
