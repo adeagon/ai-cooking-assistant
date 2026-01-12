@@ -10,7 +10,8 @@ def apply_quality_filters(
     recipe: dict,
     rating_stats: RatingStats | None,
     min_rating_count: int = 3,
-    min_rating_avg: float = 3.5
+    min_rating_avg: float = 3.5,
+    max_minutes: int = 1440
 ) -> bool:
     """Return True if recipe passes all quality filters.
 
@@ -20,12 +21,14 @@ def apply_quality_filters(
     - has non-empty ingredients
     - has non-empty instructions (steps)
     - has title (name)
+    - cooking time <= max_minutes (default 24 hours)
 
     Args:
         recipe: Recipe dict from CSV
         rating_stats: RatingStats for this recipe (or None if no ratings)
         min_rating_count: Minimum number of ratings required
         min_rating_avg: Minimum average rating required
+        max_minutes: Maximum cooking time in minutes (default 1440 = 24 hours)
 
     Returns:
         True if recipe passes all filters, False otherwise
@@ -52,6 +55,11 @@ def apply_quality_filters(
         return False
 
     if rating_stats.rating_avg < min_rating_avg:
+        return False
+
+    # Filter out recipes with unrealistic cooking times
+    minutes = recipe.get('minutes')
+    if minutes is not None and minutes > max_minutes:
         return False
 
     return True

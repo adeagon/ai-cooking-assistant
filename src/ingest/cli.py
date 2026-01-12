@@ -38,7 +38,8 @@ def download():
 @app.command()
 def process(
     min_rating_count: int = typer.Option(3, help="Minimum number of ratings"),
-    min_rating_avg: float = typer.Option(3.5, help="Minimum average rating")
+    min_rating_avg: float = typer.Option(3.5, help="Minimum average rating"),
+    max_minutes: int = typer.Option(1440, help="Maximum cooking time in minutes (default 24 hours)")
 ):
     """Process raw data: parse, normalize, filter, save."""
     raw_dir = Path("data/raw")
@@ -79,7 +80,7 @@ def process(
         recipe_id = recipe_dict['recipe_id']
         stats = rating_stats.get(recipe_id)
 
-        if apply_quality_filters(recipe_dict, stats, min_rating_count, min_rating_avg):
+        if apply_quality_filters(recipe_dict, stats, min_rating_count, min_rating_avg, max_minutes):
             filtered_recipes.append((recipe_dict, stats))
 
     console.print(f"[green]OK Filtered {len(filtered_recipes)} recipes from {total_recipes} total[/green]")

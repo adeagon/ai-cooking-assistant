@@ -46,7 +46,7 @@ def test_apply_quality_filters_pass():
     }
     rating_stats = RatingStats(rating_avg=4.5, rating_count=10)
 
-    assert apply_quality_filters(recipe, rating_stats, min_rating_count=3, min_rating_avg=3.5) is True
+    assert apply_quality_filters(recipe, rating_stats, min_rating_count=3, min_rating_avg=3.5, max_minutes=1440) is True
 
 
 def test_apply_quality_filters_fail_no_ratings():
