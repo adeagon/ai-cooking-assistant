@@ -51,7 +51,7 @@ def chat():
 async def async_chat_session():
     """Async chat session with LLM integration."""
     from pathlib import Path
-    from langchain_community.chat_models import ChatOllama
+    from langchain_ollama import ChatOllama
     from src.retrieval.retriever import RecipeRetriever
     from src.retrieval.rerank import RecipeReranker
     from src.retrieval.recipe_cards import RecipeCardBuilder
@@ -110,7 +110,7 @@ async def async_chat_session():
         session_id, session = session_store.get_or_create_current()
         rolling_summary = session_store.get_summary(session_id)
 
-        console.print("[green]✓ Ready![/green]\n")
+        console.print("[green]Ready![/green]\n")
 
         logger.info("Chat components initialized", session_id=session_id)
 
