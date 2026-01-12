@@ -93,6 +93,9 @@ python -m src.app.cli chat
 # /show <ref>     - Show full recipe with ingredients and instructions
 # /cooked <ref>   - Mark recipe as cooked
 # /history        - View cooking history
+# /save <ref>     - Save recipe to Recipe Box (for bookmarking)
+# /unsave <ref>   - Remove recipe from Recipe Box
+# /box            - List all saved recipes
 
 # Run tests
 pytest
@@ -126,6 +129,7 @@ pytest -v
    - **RollingSummarizer**: Rolling summary (1-3 sentences updated each turn)
    - **FeedbackStore**: Recipe feedback (likes, dislikes, ratings) and cuisine learning (Phase 5)
    - **HistoryStore**: Cooking history with date-based filtering (Phase 5)
+   - **RecipeBoxStore**: Saved/bookmarked recipes for later reference (no exclusion from recommendations)
 
 5. **CLI App** (`src/app/`): Typer-based conversational interface.
 
@@ -188,6 +192,7 @@ Display response + capture recipe cards for /commands
 - `SessionState`: Current session constraints (ingredients on hand, time limit, goals)
 - `RecipeFeedback`: User feedback on recipes (like, dislike, rate) with timestamps (Phase 5)
 - `CookingHistoryEntry`: Record of cooked recipes with dates and optional notes (Phase 5)
+- `SavedRecipe`: Bookmarked recipe in Recipe Box with title, saved date, and notes
 
 ## LangChain Chains (LCEL)
 
