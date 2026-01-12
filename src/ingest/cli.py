@@ -12,6 +12,7 @@ from src.ingest.load_foodcom import load_recipes, compute_ratings
 from src.ingest.normalize import extract_key_ingredients
 from src.ingest.filters import apply_quality_filters
 from src.ingest.build_db import create_tables, insert_recipes, get_recipe_by_id, get_stats
+from src.ingest.build_vectorstore import build_vectorstore
 from src.domain.models import Recipe
 
 app = typer.Typer(help="Data ingestion commands")
@@ -183,3 +184,45 @@ def sample(recipe_id: str):
 
     if len(recipe.instructions) > 5:
         console.print(f"  ... ({len(recipe.instructions) - 5} more steps)")
+
+
+@app.command()
+def embed(
+    batch_size: int = typer.Option(500, help="Number of recipes to process per batch")
+):
+    """Build embeddings and persist to ChromaDB."""
+    import time
+    from pathlib import Path
+
+    processed_dir = Path("data/processed")
+    recipes_path = processed_dir / "recipes.jsonl"
+
+    if not recipes_path.exists():
+        console.print(f"[red]ERROR Recipes file not found: {recipes_path}[/red]")
+        console.print("[yellow]Run 'ingest process' first[/yellow]")
+        raise typer.Exit(1)
+
+    console.print("[cyan]Building embeddings and vector store...[/cyan]")
+    console.print(f"Embedding model: [cyan]{settings.embedding_model}[/cyan]")
+    console.print(f"ChromaDB location: [cyan]{settings.chroma_persist_dir}[/cyan]")
+    console.print(f"Batch size: [cyan]{batch_size}[/cyan]")
+
+    start_time = time.time()
+
+    try:
+        total_indexed = build_vectorstore(
+            recipes_path=recipes_path,
+            chroma_dir=settings.chroma_persist_dir,
+            embedding_model=settings.embedding_model,
+            batch_size=batch_size
+        )
+
+        elapsed_time = time.time() - start_time
+        console.print(f"\n[bold green]SUCCESS![/bold green]")
+        console.print(f"Indexed [cyan]{total_indexed:,}[/cyan] recipes in [cyan]{elapsed_time:.1f}s[/cyan]")
+        console.print(f"Vector store saved to: [cyan]{settings.chroma_persist_dir}[/cyan]")
+
+    except Exception as e:
+        console.print(f"[red]ERROR Embedding failed: {e}[/red]")
+        logger.exception("Embedding failed")
+        raise typer.Exit(1)

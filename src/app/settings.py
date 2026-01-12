@@ -26,7 +26,7 @@ class Settings(BaseSettings):
 
     # Embedding and reranking models
     embedding_model: str = Field(
-        default="all-MiniLM-L6-v2",
+        default="all-mpnet-base-v2",
         description="Sentence transformers embedding model"
     )
     reranker_model: str = Field(
@@ -46,15 +46,15 @@ class Settings(BaseSettings):
 
     # Retrieval parameters
     k_retrieve: int = Field(
-        default=30,
+        default=100,
         description="Number of candidates to retrieve from vector store"
     )
     k_rerank: int = Field(
-        default=10,
+        default=20,
         description="Number of candidates after reranking"
     )
     k_context: int = Field(
-        default=4,
+        default=6,
         description="Number of recipe cards to pass to LLM"
     )
 
