@@ -148,7 +148,7 @@ You: I have chicken and tomatoes, something quick and healthy
 ### Run Tests
 
 ```bash
-# Run all tests (136 tests total: 82 Phase 1-3, 54 Phase 4)
+# Run all tests (158 tests total: 82 Phase 1-3, 76 Phase 4)
 pytest
 
 # Run retrieval tests only
@@ -157,8 +157,11 @@ pytest tests/test_retrieval*.py -v
 # Run Phase 3 tests (reranking + recipe cards)
 pytest tests/test_rerank.py tests/test_recipe_cards.py -v
 
-# Run Phase 4 tests (memory + chains + integration)
-pytest tests/test_memory.py tests/test_chains.py tests/test_chat_integration.py -v
+# Run Phase 4 tests (memory + chains + integration + scenarios)
+pytest tests/test_memory.py tests/test_chains.py tests/test_chat_integration.py tests/test_chat_scenarios.py -v
+
+# Run chat scenario tests only
+pytest tests/test_chat_scenarios.py -v
 
 # Run regression tests (verify no functionality broke)
 pytest tests/test_regression.py -v
@@ -168,12 +171,15 @@ pytest --cov=src
 ```
 
 **Test Suite** (Phase 4):
-- 136 total tests (all passing)
-- **Phase 4 New Tests (54)**:
+- 158 total tests (all passing)
+- **Phase 4 New Tests (76)**:
   - Memory system (20): ProfileStore, SessionStore, RollingSummarizer
   - Chains (27): ConstraintExtractor, prompt formatters, gate logic
   - Integration (7): LCEL chain integration, end-to-end flow
+  - Chat scenarios (22): Real-world conversation flows, constraint extraction, clarification gates
 - **Phase 1-3 Tests (82)**: All regression tests passing
+
+See `PHASE_4_TEST_RESULTS.md` for comprehensive test results including 10 live scenario tests.
 
 ### Available Commands
 
@@ -200,6 +206,7 @@ python -m src.app.cli chat               # Interactive assistant
 - `CLAUDE.md` - Architecture and development guidance
 - `PHASE_2_UPGRADE_SUMMARY.md` - GPU acceleration and quality improvements (Phase 2)
 - `PHASE_4_SUMMARY.md` - LLM integration with LangChain LCEL (Phase 4)
+- `PHASE_4_TEST_RESULTS.md` - Comprehensive Phase 4 test results (10 scenarios, GPU metrics)
 - `docs/GPU_SETUP.md` - GPU setup instructions
 
 ## Project Structure
