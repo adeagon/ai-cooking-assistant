@@ -1,0 +1,246 @@
+"""Unit tests for LCEL chains and extractors."""
+
+import pytest
+
+from src.chains.extractors import ConstraintExtractor
+from src.chains.chat_chain import should_clarify
+from src.chains.prompts import format_preferences, format_session_context
+from src.domain.models import Constraints, PreferenceProfile, SessionState
+
+
+class TestConstraintExtractor:
+    """Tests for ConstraintExtractor."""
+
+    @pytest.fixture
+    def extractor(self):
+        """Create ConstraintExtractor instance."""
+        return ConstraintExtractor()
+
+    def test_extract_ingredients_simple(self, extractor):
+        """Test extracting ingredients from simple input."""
+        constraints = extractor.extract_constraints("I have chicken and tomatoes")
+
+        assert "chicken" in constraints.ingredients
+        assert "tomatoes" in constraints.ingredients
+
+    def test_extract_ingredients_with_using(self, extractor):
+        """Test extracting ingredients with 'using' keyword."""
+        constraints = extractor.extract_constraints("using garlic, onions and peppers")
+
+        assert "garlic" in constraints.ingredients
+        assert "onions" in constraints.ingredients
+        assert "peppers" in constraints.ingredients
+
+    def test_extract_time_limit_minutes(self, extractor):
+        """Test extracting time limit in minutes."""
+        constraints = extractor.extract_constraints("under 30 minutes")
+
+        assert constraints.time_limit == 30
+
+    def test_extract_time_limit_hours(self, extractor):
+        """Test extracting time limit in hours."""
+        constraints = extractor.extract_constraints("less than 2 hours")
+
+        assert constraints.time_limit == 120  # 2 hours * 60
+
+    def test_extract_quick_keyword(self, extractor):
+        """Test that 'quick' sets default time limit."""
+        constraints = extractor.extract_constraints("something quick")
+
+        assert constraints.time_limit == 30  # Default for quick
+
+    def test_extract_dietary_vegetarian(self, extractor):
+        """Test extracting vegetarian dietary restriction."""
+        constraints = extractor.extract_constraints("I'm vegetarian")
+
+        assert constraints.dietary == "vegetarian"
+
+    def test_extract_dietary_vegan(self, extractor):
+        """Test extracting vegan dietary restriction."""
+        constraints = extractor.extract_constraints("vegan recipes please")
+
+        assert constraints.dietary == "vegan"
+
+    def test_extract_dietary_keto(self, extractor):
+        """Test extracting keto dietary restriction."""
+        constraints = extractor.extract_constraints("looking for ketogenic meals")
+
+        assert constraints.dietary == "keto"
+
+    def test_extract_cuisine_italian(self, extractor):
+        """Test extracting Italian cuisine."""
+        constraints = extractor.extract_constraints("I want italian food")
+
+        assert constraints.cuisine == "italian"
+
+    def test_extract_cuisine_mexican(self, extractor):
+        """Test extracting Mexican cuisine."""
+        constraints = extractor.extract_constraints("something mexican")
+
+        assert constraints.cuisine == "mexican"
+
+    def test_extract_goal_healthy(self, extractor):
+        """Test extracting healthy goal."""
+        constraints = extractor.extract_constraints("I want something healthy")
+
+        assert "healthy" in constraints.goals
+
+    def test_extract_goal_spicy(self, extractor):
+        """Test extracting spicy goal."""
+        constraints = extractor.extract_constraints("make it spicy and hot")
+
+        assert "spicy" in constraints.goals
+
+    def test_extract_combined_constraints(self, extractor):
+        """Test extracting multiple constraint types at once."""
+        constraints = extractor.extract_constraints(
+            "I have chicken and tomatoes, want something quick and healthy, italian style"
+        )
+
+        assert "chicken" in constraints.ingredients
+        assert "tomatoes" in constraints.ingredients
+        assert constraints.time_limit == 30  # quick
+        assert "healthy" in constraints.goals
+        assert constraints.cuisine == "italian"
+
+    def test_extract_empty_input(self, extractor):
+        """Test extracting from empty input."""
+        constraints = extractor.extract_constraints("")
+
+        assert constraints.ingredients == []
+        assert constraints.time_limit is None
+        assert constraints.dietary is None
+        assert constraints.cuisine is None
+        assert constraints.goals == []
+
+
+class TestShouldClarify:
+    """Tests for should_clarify gate function."""
+
+    def test_clarify_when_no_constraints(self):
+        """Test that clarification is needed when no constraints."""
+        input_data = {
+            "constraints": Constraints(),
+            "session": SessionState(),
+        }
+
+        assert should_clarify(input_data) is True
+
+    def test_no_clarify_with_ingredients(self):
+        """Test that clarification is not needed with ingredients."""
+        input_data = {
+            "constraints": Constraints(ingredients=["chicken"]),
+            "session": SessionState(),
+        }
+
+        assert should_clarify(input_data) is False
+
+    def test_no_clarify_with_session_ingredients(self):
+        """Test that session ingredients satisfy requirement."""
+        input_data = {
+            "constraints": Constraints(),
+            "session": SessionState(ingredients_on_hand=["chicken"]),
+        }
+
+        assert should_clarify(input_data) is False
+
+    def test_no_clarify_with_goals(self):
+        """Test that goals satisfy requirement."""
+        input_data = {
+            "constraints": Constraints(goals=["healthy"]),
+            "session": SessionState(),
+        }
+
+        assert should_clarify(input_data) is False
+
+    def test_no_clarify_with_dietary(self):
+        """Test that dietary restriction satisfies requirement."""
+        input_data = {
+            "constraints": Constraints(dietary="vegetarian"),
+            "session": SessionState(),
+        }
+
+        assert should_clarify(input_data) is False
+
+    def test_no_clarify_with_cuisine(self):
+        """Test that cuisine satisfies requirement."""
+        input_data = {
+            "constraints": Constraints(cuisine="italian"),
+            "session": SessionState(),
+        }
+
+        assert should_clarify(input_data) is False
+
+
+class TestPromptFormatters:
+    """Tests for prompt formatting functions."""
+
+    def test_format_preferences_defaults(self):
+        """Test formatting default preferences."""
+        profile = PreferenceProfile()
+
+        formatted = format_preferences(profile)
+
+        assert "USER PREFERENCES:" in formatted
+        assert "Spice level: medium" in formatted
+        assert "Diet: none" in formatted
+
+    def test_format_preferences_with_avoid(self):
+        """Test formatting preferences with avoid list."""
+        profile = PreferenceProfile(
+            avoid_ingredients=["fish", "shellfish", "peanuts"]
+        )
+
+        formatted = format_preferences(profile)
+
+        assert "Avoid:" in formatted
+        assert "fish" in formatted
+
+    def test_format_preferences_with_cuisines(self):
+        """Test formatting preferences with preferred cuisines."""
+        profile = PreferenceProfile(
+            preferred_cuisines=["italian", "mexican"]
+        )
+
+        formatted = format_preferences(profile)
+
+        assert "Preferred cuisines:" in formatted
+        assert "italian" in formatted
+
+    def test_format_session_context_empty(self):
+        """Test formatting empty session context."""
+        session = SessionState()
+
+        formatted = format_session_context(session)
+
+        assert formatted == ""
+
+    def test_format_session_context_with_ingredients(self):
+        """Test formatting session with ingredients."""
+        session = SessionState(ingredients_on_hand=["chicken", "tomatoes"])
+
+        formatted = format_session_context(session)
+
+        assert "CURRENT SESSION:" in formatted
+        assert "Ingredients on hand:" in formatted
+        assert "chicken" in formatted
+
+    def test_format_session_context_with_goals(self):
+        """Test formatting session with goals."""
+        session = SessionState(goals=["quick", "healthy"])
+
+        formatted = format_session_context(session)
+
+        assert "Goals:" in formatted
+        assert "quick" in formatted
+
+    def test_format_session_context_with_summary(self):
+        """Test formatting session with rolling summary."""
+        session = SessionState(ingredients_on_hand=["chicken"])
+        rolling_summary = "ingredients: chicken; time: 30 min"
+
+        formatted = format_session_context(session, rolling_summary)
+
+        assert "PREVIOUS DISCUSSION:" in formatted
+        assert "ingredients: chicken" in formatted
+        assert "CURRENT SESSION:" in formatted

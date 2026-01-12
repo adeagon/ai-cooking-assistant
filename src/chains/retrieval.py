@@ -1,0 +1,156 @@
+"""Retrieval chain wrapping vector search, reranking, and card building."""
+
+from typing import Any
+
+from langchain_core.runnables import Runnable
+
+from src.app.logging_config import get_logger
+from src.app.settings import Settings
+from src.domain.models import Constraints, RecipeCard
+from src.retrieval.recipe_cards import RecipeCardBuilder
+from src.retrieval.rerank import RecipeReranker
+from src.retrieval.retriever import RecipeRetriever
+
+logger = get_logger(__name__)
+
+
+class RetrievalRunnable(Runnable):
+    """LangChain Runnable for recipe retrieval pipeline.
+
+    Pipeline: Vector search (k=100) → Cross-encoder rerank (k=20) → Recipe cards (k=6)
+    """
+
+    def __init__(
+        self,
+        retriever: RecipeRetriever,
+        reranker: RecipeReranker,
+        card_builder: RecipeCardBuilder,
+        settings: Settings,
+    ):
+        """Initialize retrieval runnable.
+
+        Args:
+            retriever: RecipeRetriever instance
+            reranker: RecipeReranker instance
+            card_builder: RecipeCardBuilder instance
+            settings: Settings with retrieval parameters
+        """
+        super().__init__()
+        self.retriever = retriever
+        self.reranker = reranker
+        self.card_builder = card_builder
+        self.settings = settings
+
+    def invoke(self, input_data: dict[str, Any], config: dict | None = None) -> dict[str, Any]:
+        """Execute retrieval pipeline.
+
+        Args:
+            input_data: Dictionary with "user_input" and "constraints" keys
+            config: Optional LangChain config
+
+        Returns:
+            Input data with "cards" and "cards_text" keys added
+        """
+        user_input = input_data.get("user_input", "")
+        constraints: Constraints = input_data.get("constraints", Constraints())
+
+        # Build query from user input and constraints
+        query = self._build_query(user_input, constraints)
+
+        logger.info("Starting retrieval pipeline", query=query, k_retrieve=self.settings.k_retrieve)
+
+        # Step 1: Vector search
+        results = self.retriever.search(query, k=self.settings.k_retrieve)
+
+        logger.info(f"Retrieved {len(results)} candidates from vector search")
+
+        # Step 2: Rerank with cross-encoder
+        reranked = self.reranker.rerank(query, results, top_k=self.settings.k_rerank)
+
+        logger.info(f"Reranked to top {len(reranked)} candidates")
+
+        # Step 3: Build recipe cards
+        cards = self.card_builder.build_cards(reranked[: self.settings.k_context], query)
+
+        logger.info(f"Built {len(cards)} recipe cards for LLM context")
+
+        # Format cards as text
+        cards_text = self._format_cards(cards)
+
+        return {**input_data, "cards": cards, "cards_text": cards_text}
+
+    def _build_query(self, user_input: str, constraints: Constraints) -> str:
+        """Build search query from input and constraints.
+
+        Args:
+            user_input: Original user input
+            constraints: Extracted constraints
+
+        Returns:
+            Enhanced query string
+        """
+        query_parts = [user_input]
+
+        # Add ingredients to query
+        if constraints.ingredients:
+            query_parts.append(" ".join(constraints.ingredients))
+
+        # Add cuisine to query
+        if constraints.cuisine:
+            query_parts.append(constraints.cuisine)
+
+        # Add dietary restrictions
+        if constraints.dietary:
+            query_parts.append(constraints.dietary)
+
+        # Add goals
+        if constraints.goals:
+            query_parts.extend(constraints.goals)
+
+        return " ".join(query_parts)
+
+    def _format_cards(self, cards: list[RecipeCard]) -> str:
+        """Format recipe cards for LLM prompt.
+
+        Args:
+            cards: List of RecipeCard objects
+
+        Returns:
+            Formatted text block
+        """
+        if not cards:
+            return "No recipes found matching your criteria."
+
+        lines = []
+        for i, card in enumerate(cards, 1):
+            lines.append(f"### {i}. {card.title}")
+
+            # Rating
+            if card.rating_avg and card.rating_count:
+                lines.append(f"- Rating: {card.rating_avg:.1f}/5 ({card.rating_count} reviews)")
+
+            # Time
+            if card.time_total:
+                lines.append(f"- Time: {card.time_total} minutes")
+
+            # Tags
+            if card.tags:
+                tags_str = ", ".join(card.tags[:8])  # Limit to 8 tags
+                lines.append(f"- Tags: {tags_str}")
+
+            # Key ingredients
+            if card.key_ingredients:
+                ingredients_str = ", ".join(card.key_ingredients[:10])
+                lines.append(f"- Key ingredients: {ingredients_str}")
+
+            # Summary
+            if card.one_sentence_summary:
+                lines.append(f"- Summary: {card.one_sentence_summary}")
+
+            # Why it matches
+            if card.why_match:
+                lines.append(f"- Why it matches: {card.why_match}")
+
+            lines.append("")  # Empty line between cards
+
+        return "\n".join(lines)
