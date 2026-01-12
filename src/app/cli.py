@@ -109,6 +109,175 @@ def display_full_recipe(recipe, console: Console):
     ))
 
 
+def execute_intent(
+    intent_result,
+    last_cards: list,
+    feedback_store,
+    history_store,
+    recipe_box_store,
+    profile_store,
+    session_store,
+    session_id: str,
+    settings,
+    console: Console
+) -> bool:
+    """Execute detected intent command.
+
+    Args:
+        intent_result: IntentClassification object
+        last_cards: List of last recommended RecipeCard objects
+        feedback_store: FeedbackStore instance
+        history_store: HistoryStore instance
+        recipe_box_store: RecipeBoxStore instance
+        profile_store: ProfileStore instance
+        session_store: SessionStore instance
+        session_id: Current session ID
+        settings: Application settings
+        console: Rich console for output
+
+    Returns:
+        True if command was executed, False if should fall through to chat
+    """
+    from src.domain.models import RecipeFeedback
+    from src.ingest.build_db import get_recipe_by_id
+
+    intent = intent_result.intent
+    ref = intent_result.recipe_reference
+
+    # Skip if conversation or low confidence
+    if intent == "conversation" or intent_result.confidence == "low":
+        return False
+
+    # Handle stateless commands (no recipe reference needed)
+    if intent == "history":
+        history = history_store.get_cooking_history(limit=10)
+        if history:
+            console.print(f"\n[bold]Recent Cooking History:[/bold]")
+            for i, entry in enumerate(history, 1):
+                recipe = get_recipe_by_id(settings.sqlite_db_path, entry.recipe_id)
+                title = recipe.title if recipe else entry.recipe_id
+                cooked_str = entry.cooked_at.strftime("%Y-%m-%d") if entry.cooked_at else "Unknown"
+                console.print(f"  {i}. {title} (cooked: {cooked_str})")
+        else:
+            console.print("[yellow]No cooking history yet[/yellow]")
+        return True
+
+    if intent == "box":
+        saved_recipes = recipe_box_store.get_saved_recipes(limit=50)
+        if saved_recipes:
+            console.print(f"\n[bold]Recipe Box ({len(saved_recipes)} saved):[/bold]")
+            for i, saved in enumerate(saved_recipes, 1):
+                saved_str = saved.saved_at.strftime("%Y-%m-%d") if saved.saved_at else "Unknown"
+                console.print(f"  {i}. {saved.title} (saved: {saved_str})")
+        else:
+            console.print("[yellow]Recipe Box is empty. Use /save <recipe> to add recipes![/yellow]")
+        return True
+
+    if intent == "new":
+        new_session_id = session_store.create()
+        console.print("[green]✓ Started new session[/green]")
+        logger.info("New session created", session_id=new_session_id)
+        # Note: session_id update would need to be handled by caller
+        return True
+
+    if intent == "prefs":
+        profile = profile_store.load()
+        console.print(f"\n[bold]Your Preferences:[/bold]")
+        console.print(f"  Spice level: {profile.spice_level}")
+        console.print(f"  Diet: {profile.diet}")
+        if profile.avoid_ingredients:
+            console.print(f"  Avoid: {', '.join(profile.avoid_ingredients)}")
+        if profile.preferred_cuisines:
+            console.print(f"  Cuisines: {', '.join(profile.preferred_cuisines)}")
+        return True
+
+    # Handle recipe-reference commands (need a recipe)
+    if not ref:
+        console.print("[yellow]Which recipe do you mean? Try being more specific or use a number.[/yellow]")
+        return True
+
+    # Try to resolve reference with some fallbacks
+    result = resolve_recipe_reference(ref, last_cards)
+
+    # If "it" or "that" and no match, try index 0 (most recent)
+    if not result and ref.lower() in ["it", "that", "this"] and last_cards:
+        result = (last_cards[0].recipe_id, last_cards[0].title)
+
+    if not result:
+        console.print(f"[yellow]Couldn't find recipe: {ref}[/yellow]")
+        return True
+
+    recipe_id, title = result
+
+    # Execute command based on intent
+    if intent == "like":
+        feedback_store.add_feedback(RecipeFeedback(
+            recipe_id=recipe_id,
+            feedback_type="like",
+            session_id=session_id
+        ))
+        console.print(f"[green]✓ Liked: {title}[/green]")
+        return True
+
+    if intent == "dislike":
+        feedback_store.add_feedback(RecipeFeedback(
+            recipe_id=recipe_id,
+            feedback_type="dislike",
+            session_id=session_id
+        ))
+        console.print(f"[yellow]✓ Disliked: {title}[/yellow]")
+        return True
+
+    if intent == "rate":
+        rating = intent_result.rating_value
+        if not rating or not 1 <= rating <= 5:
+            console.print("[yellow]What rating would you give (1-5 stars)?[/yellow]")
+            return True
+
+        feedback_store.add_feedback(RecipeFeedback(
+            recipe_id=recipe_id,
+            feedback_type="rate",
+            rating=rating,
+            session_id=session_id
+        ))
+        console.print(f"[green]✓ Rated {title}: {rating}/5[/green]")
+        return True
+
+    if intent == "show":
+        recipe = get_recipe_by_id(settings.sqlite_db_path, recipe_id)
+        if recipe:
+            display_full_recipe(recipe, console)
+        else:
+            console.print(f"[yellow]Recipe not found in database: {recipe_id}[/yellow]")
+        return True
+
+    if intent == "cooked":
+        history_store.add_cooked(recipe_id)
+        console.print(f"[green]✓ Marked as cooked: {title}[/green]")
+        return True
+
+    if intent == "save":
+        try:
+            recipe_box_store.save_recipe(recipe_id, title)
+            console.print(f"[green]✓ Saved to Recipe Box: {title}[/green]")
+        except Exception as e:
+            if "UNIQUE" in str(e):
+                console.print(f"[yellow]Already saved: {title}[/yellow]")
+            else:
+                console.print(f"[red]Error saving recipe: {e}[/red]")
+        return True
+
+    if intent == "unsave":
+        if recipe_box_store.remove_recipe(recipe_id):
+            console.print(f"[green]✓ Removed from Recipe Box: {title}[/green]")
+        else:
+            console.print(f"[yellow]Recipe not found in box: {title}[/yellow]")
+        return True
+
+    # Unknown intent (shouldn't happen, but be safe)
+    return False
+
+
 async def async_chat_session():
     """Async chat session with LLM integration."""
     from pathlib import Path
@@ -118,6 +287,7 @@ async def async_chat_session():
     from src.retrieval.recipe_cards import RecipeCardBuilder
     from src.chains.retrieval import RetrievalRunnable
     from src.chains.chat_chain import build_chat_chain
+    from src.chains.intent_classifier import classify_intent
     from src.memory import ProfileStore, SessionStore, RollingSummarizer, FeedbackStore, HistoryStore, RecipeBoxStore
     from src.domain.models import RecipeFeedback
     from src.ingest.build_db import get_recipe_by_id
@@ -207,6 +377,31 @@ async def async_chat_session():
                 console.print("[yellow]Goodbye![/yellow]")
                 logger.info("Chat session ended by user")
                 break
+
+            # Try natural language intent classification (skip for explicit slash commands)
+            if not user_input.strip().startswith("/"):
+                try:
+                    intent_result = classify_intent(user_input, last_recommended_cards, llm)
+
+                    # Execute intent if detected (and not conversation)
+                    if execute_intent(
+                        intent_result,
+                        last_recommended_cards,
+                        feedback_store,
+                        history_store,
+                        recipe_box_store,
+                        profile_store,
+                        session_store,
+                        session_id,
+                        settings,
+                        console
+                    ):
+                        # Intent was executed, continue to next input
+                        continue
+
+                except Exception as e:
+                    logger.warning("Intent classification failed, falling back to chat", error=str(e))
+                    # Fall through to normal chat processing
 
             if user_input.strip().lower() == "/new":
                 session_id = session_store.create()
