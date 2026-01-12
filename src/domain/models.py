@@ -87,3 +87,14 @@ class Constraints(BaseModel):
     dietary: str | None = None
     cuisine: str | None = None
     goals: list[str] = Field(default_factory=list)
+
+
+class RetrievalResult(BaseModel):
+    """Result from vector search retrieval."""
+
+    recipe_id: str
+    title: str
+    score: float  # similarity score (0-1, higher is better)
+    rating_avg: float | None = None
+    rating_count: int | None = None
+    minutes: int | None = None

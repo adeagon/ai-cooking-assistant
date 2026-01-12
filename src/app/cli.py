@@ -94,6 +94,69 @@ def config():
     console.print(f"Log Level: [cyan]{settings.log_level}[/cyan]")
 
 
+@app.command()
+def search(
+    query: str = typer.Argument(..., help="Search query (e.g., 'chicken tomato spicy')"),
+    k: int = typer.Option(10, help="Number of results to return")
+):
+    """Search for recipes using vector similarity."""
+    import time
+    from pathlib import Path
+    from src.retrieval.retriever import RecipeRetriever
+
+    chroma_dir = Path(settings.chroma_persist_dir)
+
+    # Check if vector store exists
+    if not chroma_dir.exists():
+        console.print(f"[red]ERROR Vector store not found at: {chroma_dir}[/red]")
+        console.print("[yellow]Run 'ingest embed' first to build the vector store[/yellow]")
+        raise typer.Exit(1)
+
+    console.print(f"\n[cyan]Searching for:[/cyan] {query}")
+    console.print(f"[dim]Retrieving top {k} results...[/dim]\n")
+
+    try:
+        # Initialize retriever
+        retriever = RecipeRetriever(
+            chroma_dir=chroma_dir,
+            embedding_model=settings.embedding_model
+        )
+
+        # Perform search
+        start_time = time.time()
+        results = retriever.search(query, k=k)
+        elapsed_ms = (time.time() - start_time) * 1000
+
+        # Display results
+        if not results:
+            console.print("[yellow]No results found.[/yellow]")
+        else:
+            console.print(f"[bold]Found {len(results)} recipes in {elapsed_ms:.0f}ms:[/bold]\n")
+
+            for i, result in enumerate(results, 1):
+                rating_str = f"{result.rating_avg:.1f}" if result.rating_avg else "N/A"
+                rating_count_str = f"({result.rating_count})" if result.rating_count else ""
+                time_str = f"{result.minutes}m" if result.minutes else "N/A"
+
+                console.print(
+                    f"{i:2}. [bold]{result.title}[/bold] "
+                    f"[dim]| Score: {result.score:.3f} | "
+                    f"Rating: {rating_str} {rating_count_str} | "
+                    f"Time: {time_str}[/dim]"
+                )
+
+            # Warn if search is slow
+            if elapsed_ms > 200:
+                console.print(f"\n[yellow]WARNING: Search took {elapsed_ms:.0f}ms (target <200ms)[/yellow]")
+
+        logger.info("Search completed", query=query, results_count=len(results), time_ms=elapsed_ms)
+
+    except Exception as e:
+        console.print(f"[red]ERROR Search failed: {e}[/red]")
+        logger.exception("Search error")
+        raise typer.Exit(1)
+
+
 def main():
     """Entry point for the CLI application."""
     app()
