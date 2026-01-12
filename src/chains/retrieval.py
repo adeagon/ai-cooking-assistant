@@ -45,7 +45,7 @@ class RetrievalRunnable(Runnable):
         """Execute retrieval pipeline.
 
         Args:
-            input_data: Dictionary with "user_input" and "constraints" keys
+            input_data: Dictionary with "user_input", "constraints", and optional "exclude_recipe_ids" keys
             config: Optional LangChain config
 
         Returns:
@@ -53,6 +53,7 @@ class RetrievalRunnable(Runnable):
         """
         user_input = input_data.get("user_input", "")
         constraints: Constraints = input_data.get("constraints", Constraints())
+        exclude_ids: set[str] = input_data.get("exclude_recipe_ids", set())
 
         # Build query from user input and constraints
         query = self._build_query(user_input, constraints)
@@ -63,6 +64,12 @@ class RetrievalRunnable(Runnable):
         results = self.retriever.search(query, k=self.settings.k_retrieve)
 
         logger.info(f"Retrieved {len(results)} candidates from vector search")
+
+        # Filter out excluded recipes (liked, disliked, recently cooked)
+        if exclude_ids:
+            before_count = len(results)
+            results = [r for r in results if r.recipe_id not in exclude_ids]
+            logger.info(f"Filtered {before_count - len(results)} excluded recipes, {len(results)} remaining")
 
         # Step 2: Rerank with cross-encoder
         reranked = self.reranker.rerank(query, results, top_k=self.settings.k_rerank)

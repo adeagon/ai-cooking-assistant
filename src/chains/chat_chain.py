@@ -56,6 +56,7 @@ def build_chat_chain(
     profile: PreferenceProfile,
     session: SessionState,
     rolling_summary: str = "",
+    exclude_recipe_ids: set[str] | None = None,
 ) -> Runnable:
     """Build main LCEL chat chain.
 
@@ -65,6 +66,7 @@ def build_chat_chain(
         profile: User's PreferenceProfile
         session: Current SessionState
         rolling_summary: Rolling session summary
+        exclude_recipe_ids: Optional set of recipe IDs to exclude from recommendations
 
     Returns:
         Runnable chain that processes user input and returns response
@@ -72,14 +74,17 @@ def build_chat_chain(
     # Format static context
     preferences_text = format_preferences(profile)
     session_context = format_session_context(session, rolling_summary)
+    exclude_ids = exclude_recipe_ids or set()
 
     # Build clarification chain
     clarification_chain = CLARIFICATION_PROMPT | llm | StrOutputParser()
 
     # Build recommendation chain (with retrieval)
     recommendation_chain = (
-        # First, retrieve recipes
-        retrieval_chain
+        # First, add exclude_ids to input
+        RunnablePassthrough.assign(exclude_recipe_ids=lambda _: exclude_ids)
+        # Then, retrieve recipes (with exclusion filtering)
+        | retrieval_chain
         # Then, build prompt with cards
         | RunnablePassthrough.assign(
             preferences_text=lambda _: preferences_text,

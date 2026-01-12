@@ -1,5 +1,6 @@
 """Domain models for recipes, preferences, and session state."""
 
+from datetime import datetime
 from typing import Literal
 from pydantic import BaseModel, Field
 
@@ -76,6 +77,26 @@ class SessionState(BaseModel):
     goals: list[str] = Field(default_factory=list)  # e.g., ["healthy", "quick"]
     time_limit_minutes: int | None = None
     servings: int | None = None
+
+
+class RecipeFeedback(BaseModel):
+    """User feedback on a recipe (like/dislike/rating)."""
+
+    id: int | None = None
+    recipe_id: str
+    feedback_type: Literal["like", "dislike", "rate"]
+    rating: int | None = None  # 1-5 for ratings, NULL for like/dislike
+    session_id: str | None = None
+    created_at: datetime | None = None
+
+
+class CookingHistoryEntry(BaseModel):
+    """Record of a cooked recipe."""
+
+    id: int | None = None
+    recipe_id: str
+    cooked_at: datetime | None = None
+    notes: str | None = None
 
 
 class Constraints(BaseModel):

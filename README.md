@@ -2,18 +2,22 @@
 
 Local recipe assistant using RAG (Retrieval-Augmented Generation) with Llama 3.3 70B via Ollama.
 
-## Current Status: Phase 4 Complete ✅
+## Current Status: Phase 5 Complete ✅
 
 - ✅ Phase 1: Data ingestion (88,399 recipes indexed)
 - ✅ Phase 2: Embeddings + vector store with GPU acceleration
 - ✅ Phase 3: Cross-encoder reranking + recipe cards
 - ✅ Phase 4: LLM integration with Ollama (LangChain LCEL)
-- 🚧 Phase 5: Memory & personalization (next)
+- ✅ Phase 5: Memory & personalization with feedback system
 
 ## Features
 
 - **Conversational Interface**: Natural language chat powered by Llama 3.3 70B (Phase 4)
 - **Smart Recommendations**: Recommends real recipes from Food.com dataset (88K+ indexed)
+- **Feedback System**: Like/dislike/rate recipes to improve recommendations (Phase 5)
+- **Cooking History**: Track what you've cooked and when (Phase 5)
+- **Smart Filtering**: Excludes liked/cooked/disliked recipes from future recommendations (Phase 5)
+- **Full Recipe Display**: View complete recipes with ingredients and instructions (Phase 5)
 - **GPU-Accelerated Search**: Semantic search with ChromaDB + high-quality embeddings (all-mpnet-base-v2)
 - **Cross-Encoder Reranking**: Improved relevance with ms-marco-MiniLM-L-6-v2 (Phase 3)
 - **Intelligent Clarification**: Asks questions when constraints are insufficient (Phase 4)
@@ -137,18 +141,29 @@ python -m src.app.cli chat
 **Commands:**
 - `/new` - Start a new session
 - `/prefs` - Show your preferences
+- `/like <ref>` - Like a recipe (by number or name) (Phase 5)
+- `/dislike <ref>` - Dislike a recipe (Phase 5)
+- `/rate <1-5> <ref>` - Rate a recipe (Phase 5)
+- `/show <ref>` - Show full recipe with ingredients and instructions (Phase 5)
+- `/cooked <ref>` - Mark recipe as cooked (Phase 5)
+- `/history` - Show cooking history (Phase 5)
 - `quit` or `exit` - End the chat
 
 **Example:**
 ```
 You: I have chicken and tomatoes, something quick and healthy
+Assistant: [Recommends 3 recipes]
+You: /like 1
+You: /show 1
+[Full recipe with ingredients and instructions displayed]
+You: /cooked 1
 
 ## Development
 
 ### Run Tests
 
 ```bash
-# Run all tests (158 tests total: 82 Phase 1-3, 76 Phase 4)
+# Run all tests (203 tests total: 82 Phase 1-3, 76 Phase 4, 45 Phase 5)
 pytest
 
 # Run retrieval tests only
@@ -160,6 +175,12 @@ pytest tests/test_rerank.py tests/test_recipe_cards.py -v
 # Run Phase 4 tests (memory + chains + integration + scenarios)
 pytest tests/test_memory.py tests/test_chains.py tests/test_chat_integration.py tests/test_chat_scenarios.py -v
 
+# Run Phase 5 tests (feedback + cooking history + integration)
+pytest tests/test_feedback.py tests/test_history.py tests/test_feedback_integration.py -v
+
+# Run LLM integration tests (requires Ollama running)
+pytest tests/test_llm_chat_phase5.py -v -s -m llm
+
 # Run chat scenario tests only
 pytest tests/test_chat_scenarios.py -v
 
@@ -170,16 +191,21 @@ pytest tests/test_regression.py -v
 pytest --cov=src
 ```
 
-**Test Suite** (Phase 4):
-- 158 total tests (all passing)
-- **Phase 4 New Tests (76)**:
+**Test Suite** (Phase 5):
+- 203 total tests (all passing)
+- **Phase 5 New Tests (48)**:
+  - FeedbackStore (12): Like/dislike/rate, cuisine learning
+  - HistoryStore (10): Cooking tracking, date filtering
+  - Integration (23): Recipe reference resolver, exclusion filtering, full workflows
+  - **LLM Integration (3)**: Full conversation tests with Ollama (requires `ollama serve`)
+- **Phase 4 Tests (76)**:
   - Memory system (20): ProfileStore, SessionStore, RollingSummarizer
   - Chains (27): ConstraintExtractor, prompt formatters, gate logic
   - Integration (7): LCEL chain integration, end-to-end flow
   - Chat scenarios (22): Real-world conversation flows, constraint extraction, clarification gates
 - **Phase 1-3 Tests (82)**: All regression tests passing
 
-See `PHASE_4_TEST_RESULTS.md` for comprehensive test results including 10 live scenario tests.
+See `PHASE_4_TEST_RESULTS.md` for Phase 4 test results and `PHASE_5_SUMMARY.md` for Phase 5 implementation details.
 
 ### Available Commands
 
@@ -207,6 +233,7 @@ python -m src.app.cli chat               # Interactive assistant
 - `PHASE_2_UPGRADE_SUMMARY.md` - GPU acceleration and quality improvements (Phase 2)
 - `PHASE_4_SUMMARY.md` - LLM integration with LangChain LCEL (Phase 4)
 - `PHASE_4_TEST_RESULTS.md` - Comprehensive Phase 4 test results (10 scenarios, GPU metrics)
+- `PHASE_5_SUMMARY.md` - Memory & personalization with feedback system (Phase 5)
 - `docs/GPU_SETUP.md` - GPU setup instructions
 
 ## Project Structure
