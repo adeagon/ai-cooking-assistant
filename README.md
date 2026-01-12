@@ -163,7 +163,7 @@ You: /cooked 1
 ### Run Tests
 
 ```bash
-# Run all tests (203 tests total: 82 Phase 1-3, 76 Phase 4, 45 Phase 5)
+# Run all tests (206 tests total: 82 Phase 1-3, 76 Phase 4, 48 Phase 5)
 pytest
 
 # Run retrieval tests only
@@ -192,12 +192,13 @@ pytest --cov=src
 ```
 
 **Test Suite** (Phase 5):
-- 203 total tests (all passing)
+- 206 total tests (all passing)
 - **Phase 5 New Tests (48)**:
   - FeedbackStore (12): Like/dislike/rate, cuisine learning
   - HistoryStore (10): Cooking tracking, date filtering
   - Integration (23): Recipe reference resolver, exclusion filtering, full workflows
   - **LLM Integration (3)**: Full conversation tests with Ollama (requires `ollama serve`)
+- **Total: 82 (Phase 1-3) + 76 (Phase 4) + 48 (Phase 5) = 206 tests**
 - **Phase 4 Tests (76)**:
   - Memory system (20): ProfileStore, SessionStore, RollingSummarizer
   - Chains (27): ConstraintExtractor, prompt formatters, gate logic

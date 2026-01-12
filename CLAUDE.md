@@ -38,8 +38,14 @@ Local Recipe Assistant: A fully-local, interactive dinner-planning assistant usi
   - Memory system: ProfileStore, SessionStore, RollingSummarizer
   - Rule-based constraint extraction (ingredients, time, diet, cuisine, goals)
   - Conversational chat command with clarification vs recommendation branching
-  - All 136 tests passing (54 new tests for Phase 4)
-- 🚧 **Phase 5 Next**: Memory & personalization (feedback, learning)
+  - All 158 tests passing (76 new tests for Phase 4)
+- ✅ **Phase 5 Complete**: Memory & personalization with feedback system
+  - Feedback commands: `/like`, `/dislike`, `/rate` for user preferences
+  - Cooking history: `/cooked` to track recipes, `/history` to view
+  - Smart filtering: Excludes liked/disliked/recently cooked from recommendations
+  - Full recipe display: `/show` command with ingredients and instructions
+  - FeedbackStore and HistoryStore for persistent user data
+  - All 206 tests passing (48 new tests for Phase 5, including 3 LLM integration tests)
 
 ## Development Workflow
 
@@ -80,8 +86,22 @@ python -m src.app.cli search "chicken tomato spicy"
 # Run CLI chat (Phase 4+)
 python -m src.app.cli chat
 
+# Phase 5 CLI commands (in chat mode):
+# /like <ref>     - Like a recipe (by number or name)
+# /dislike <ref>  - Dislike a recipe
+# /rate <1-5> <ref> - Rate a recipe 1-5 stars
+# /show <ref>     - Show full recipe with ingredients and instructions
+# /cooked <ref>   - Mark recipe as cooked
+# /history        - View cooking history
+
 # Run tests
 pytest
+
+# Run Phase 5 integration tests
+pytest tests/test_feedback.py tests/test_history.py tests/test_feedback_integration.py -v
+
+# Run LLM integration tests (requires Ollama running)
+pytest tests/test_llm_chat_phase5.py -v -s -m llm
 
 # Run retrieval tests
 pytest tests/test_retrieval*.py -v
@@ -100,20 +120,51 @@ pytest -v
 
 3. **LLM Layer** (`src/llm/`): Abstracted client interface (`LLMClient`) with Ollama implementation. Enables runtime swapping.
 
-4. **Memory System** (`src/memory/`): Three-layer memory model:
-   - Pinned preferences (persistent, structured in SQLite)
-   - Session constraints (per dinner-planning session)
-   - Rolling summary (1-3 sentences updated each turn)
+4. **Memory System** (`src/memory/`): Multi-layer memory and personalization:
+   - **ProfileStore**: Pinned preferences (persistent, structured in SQLite)
+   - **SessionStore**: Session constraints (per dinner-planning session)
+   - **RollingSummarizer**: Rolling summary (1-3 sentences updated each turn)
+   - **FeedbackStore**: Recipe feedback (likes, dislikes, ratings) and cuisine learning (Phase 5)
+   - **HistoryStore**: Cooking history with date-based filtering (Phase 5)
 
 5. **CLI App** (`src/app/`): Typer-based conversational interface.
 
 ### Data Flow
 
-**Current (Phase 3)**:
-User query → GPU-accelerated embedding → Vector retrieval (100 candidates) → Cross-encoder rerank (20) → Build RecipeCards (6) → Display
-
-**Future (Phase 4+)**:
-User query → Constraint extraction → Vector retrieval (100 candidates) → Cross-encoder rerank (20) → Build RecipeCards (6) → LLM generates response
+**Current (Phase 5)**:
+```
+User Input (or /command)
+    |
+    v
+[Command Detection: /like, /dislike, /rate, /show, /cooked, /history]
+    |
+    v (if not a command)
+Compute exclusion set (liked + disliked + recently cooked recipes)
+    |
+    v
+Constraint extraction from user query
+    |
+    v
+GPU-accelerated embedding generation
+    |
+    v
+Vector retrieval (100 candidates)
+    |
+    v
+Exclusion filtering (remove liked/disliked/cooked)
+    |
+    v
+Cross-encoder rerank (20 candidates)
+    |
+    v
+Build RecipeCards (6 for LLM context)
+    |
+    v
+LLM generates response (clarification or recommendations)
+    |
+    v
+Display response + capture recipe cards for /commands
+```
 
 ### Key Design Constraints
 
@@ -135,6 +186,8 @@ User query → Constraint extraction → Vector retrieval (100 candidates) → C
 - `RecipeCard`: Compact prompt representation with title, tags, key_ingredients, one_sentence_summary, why_match
 - `PreferenceProfile`: Persistent user preferences (spice level, diet, avoid ingredients, cuisines)
 - `SessionState`: Current session constraints (ingredients on hand, time limit, goals)
+- `RecipeFeedback`: User feedback on recipes (like, dislike, rate) with timestamps (Phase 5)
+- `CookingHistoryEntry`: Record of cooked recipes with dates and optional notes (Phase 5)
 
 ## LangChain Chains (LCEL)
 
