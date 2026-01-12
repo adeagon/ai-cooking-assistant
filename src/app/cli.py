@@ -97,12 +97,17 @@ def config():
 @app.command()
 def search(
     query: str = typer.Argument(..., help="Search query (e.g., 'chicken tomato spicy')"),
-    k: int = typer.Option(10, help="Number of results to return")
+    k: int = typer.Option(10, help="Number of results to return"),
+    rerank: bool = typer.Option(False, "--rerank", "-r", help="Enable cross-encoder reranking"),
+    cards: bool = typer.Option(False, "--cards", "-c", help="Show recipe cards (implies --rerank)")
 ):
-    """Search for recipes using vector similarity."""
+    """Search for recipes using vector similarity with optional reranking and card display."""
     import time
     from pathlib import Path
     from src.retrieval.retriever import RecipeRetriever
+    from src.retrieval.rerank import RecipeReranker
+    from src.retrieval.recipe_cards import RecipeCardBuilder
+    from rich.panel import Panel
 
     chroma_dir = Path(settings.chroma_persist_dir)
 
@@ -112,8 +117,13 @@ def search(
         console.print("[yellow]Run 'ingest embed' first to build the vector store[/yellow]")
         raise typer.Exit(1)
 
+    # Enable rerank if cards requested
+    if cards:
+        rerank = True
+
+    mode = "cards" if cards else "rerank" if rerank else "vector"
     console.print(f"\n[cyan]Searching for:[/cyan] {query}")
-    console.print(f"[dim]Retrieving top {k} results...[/dim]\n")
+    console.print(f"[dim]Mode: {mode} | Retrieving top {k} results...[/dim]\n")
 
     try:
         # Initialize retriever
@@ -124,13 +134,70 @@ def search(
 
         # Perform search
         start_time = time.time()
-        results = retriever.search(query, k=k)
+
+        # Step 1: Vector retrieval
+        k_retrieve = settings.k_retrieve if rerank else k
+        results = retriever.search(query, k=k_retrieve)
+
+        # Step 2: Rerank (optional)
+        if rerank and results:
+            reranker = RecipeReranker(model_name=settings.reranker_model)
+            results = reranker.rerank(query, results, top_k=settings.k_rerank)
+
+        # Limit to k results if not using cards
+        if not cards:
+            results = results[:k]
+
         elapsed_ms = (time.time() - start_time) * 1000
 
         # Display results
         if not results:
             console.print("[yellow]No results found.[/yellow]")
+        elif cards:
+            # Step 3: Build and display cards
+            builder = RecipeCardBuilder(db_path=settings.sqlite_db_path)
+            recipe_cards = builder.build_cards(results[:settings.k_context], query)
+
+            console.print(f"[bold]Found {len(recipe_cards)} recipe cards:[/bold]\n")
+
+            for i, card in enumerate(recipe_cards, 1):
+                # Build card content
+                content = []
+
+                # Rating
+                if card.rating_avg:
+                    stars = "★" * int(card.rating_avg) + "☆" * (5 - int(card.rating_avg))
+                    rating_count = f"({card.rating_count} reviews)" if card.rating_count else ""
+                    content.append(f"[yellow]{stars}[/yellow] {card.rating_avg:.1f}/5 {rating_count}")
+
+                # Time
+                if card.time_total:
+                    content.append(f"[cyan]⏱ {card.time_total} minutes[/cyan]")
+
+                # Tags
+                if card.tags:
+                    content.append(f"[dim]Tags: {', '.join(card.tags[:8])}[/dim]")
+
+                # Key ingredients
+                if card.key_ingredients:
+                    ing_list = ', '.join(card.key_ingredients[:10])
+                    content.append(f"[green]Key ingredients:[/green] {ing_list}")
+
+                # Summary
+                if card.one_sentence_summary:
+                    content.append(f"\n{card.one_sentence_summary}")
+
+                # Why match
+                if card.why_match:
+                    content.append(f"\n[bold cyan]Why this matches:[/bold cyan] {card.why_match}")
+
+                console.print(Panel(
+                    "\n".join(content),
+                    title=f"[bold]{i}. {card.title}[/bold]",
+                    border_style="blue"
+                ))
         else:
+            # Simple result list
             console.print(f"[bold]Found {len(results)} recipes in {elapsed_ms:.0f}ms:[/bold]\n")
 
             for i, result in enumerate(results, 1):
@@ -145,11 +212,14 @@ def search(
                     f"Time: {time_str}[/dim]"
                 )
 
-            # Warn if search is slow
-            if elapsed_ms > 200:
-                console.print(f"\n[yellow]WARNING: Search took {elapsed_ms:.0f}ms (target <200ms)[/yellow]")
+        # Timing summary
+        console.print(f"\n[dim]Completed in {elapsed_ms:.0f}ms[/dim]")
 
-        logger.info("Search completed", query=query, results_count=len(results), time_ms=elapsed_ms)
+        # Warn if search is slow
+        if elapsed_ms > 1000:
+            console.print(f"[yellow]WARNING: Search took {elapsed_ms:.0f}ms (target <1000ms)[/yellow]")
+
+        logger.info("Search completed", query=query, mode=mode, results_count=len(results), time_ms=elapsed_ms)
 
     except Exception as e:
         console.print(f"[red]ERROR Search failed: {e}[/red]")

@@ -2,20 +2,23 @@
 
 Local recipe assistant using RAG (Retrieval-Augmented Generation) with Llama 3.3 70B via Ollama.
 
-## Current Status: Phase 2 Complete ✅
+## Current Status: Phase 3 Complete ✅
 
 - ✅ Phase 1: Data ingestion (88,399 recipes indexed)
 - ✅ Phase 2: Embeddings + vector store with GPU acceleration
-- 🚧 Phase 3: Reranking + recipe cards (next)
+- ✅ Phase 3: Cross-encoder reranking + recipe cards
+- 🚧 Phase 4: LLM integration (next)
 
 ## Features
 
 - Recommends real recipes from Food.com dataset (180K+ recipes, 88K indexed)
 - GPU-accelerated semantic search with ChromaDB
 - High-quality embeddings (all-mpnet-base-v2, 768-dim)
-- Learns user preferences and dietary restrictions
-- Asks clarifying questions for better recommendations
-- Supports "ingredients on hand" queries
+- Cross-encoder reranking for improved relevance (ms-marco-MiniLM-L-6-v2)
+- Compact recipe cards for LLM context (Phase 3)
+- Learns user preferences and dietary restrictions (Phase 5)
+- Asks clarifying questions for better recommendations (Phase 4)
+- Supports "ingredients on hand" queries (Phase 4)
 - Fully local (no cloud dependencies)
 
 ## Tech Stack
@@ -24,7 +27,7 @@ Local recipe assistant using RAG (Retrieval-Augmented Generation) with Llama 3.3
 - **Vector Store**: ChromaDB with 88K recipes
 - **Embeddings**: sentence-transformers (all-mpnet-base-v2)
 - **GPU**: PyTorch 2.11 nightly with native RTX 5090 support
-- **Reranker**: cross-encoder (Phase 3)
+- **Reranker**: cross-encoder (ms-marco-MiniLM-L-6-v2, GPU-accelerated)
 - **Framework**: LangChain (LCEL chains)
 - **Database**: SQLite for recipes and user state
 - **CLI**: Typer
@@ -95,15 +98,25 @@ ollama pull llama3.3:70b
 ### Search Recipes
 
 ```bash
-# Search for recipes
+# Basic vector search
 python -m src.app.cli search "chicken tomato spicy"
 
+# Search with cross-encoder reranking (improved relevance)
+python -m src.app.cli search "chicken tomato spicy" --rerank
+
+# Search with recipe cards (detailed display, implies --rerank)
+python -m src.app.cli search "chicken tomato spicy" --cards
+
 # Search with specific number of results
-python -m src.app.cli search "quick pasta dinner" --k 5
+python -m src.app.cli search "quick pasta dinner" -k 5
 
 # View configuration
 python -m src.app.cli config
 ```
+
+**New in Phase 3:**
+- `--rerank` / `-r`: Enable cross-encoder reranking (100 candidates → 20 → display top k)
+- `--cards` / `-c`: Display detailed recipe cards with summaries and match explanations
 
 ### Interactive Chat (Phase 4+)
 
@@ -116,15 +129,27 @@ python -m src.app.cli chat
 ### Run Tests
 
 ```bash
-# Run all tests
+# Run all tests (82 tests total)
 pytest
 
 # Run retrieval tests only
 pytest tests/test_retrieval*.py -v
 
+# Run Phase 3 tests (reranking + recipe cards)
+pytest tests/test_rerank.py tests/test_recipe_cards.py -v
+
+# Run regression tests (verify no functionality broke)
+pytest tests/test_regression.py -v
+
 # Run with coverage
 pytest --cov=src
 ```
+
+**Test Suite** (Phase 3):
+- 82 total tests (all passing)
+- Unit tests: Reranking (6), Recipe cards (14), Ingestion (13), CLI (4)
+- Integration tests: Retrieval (23), Reranking (4), Recipe cards (4)
+- Regression tests: 14 tests verifying Phase 1-3 compatibility
 
 ### Available Commands
 
