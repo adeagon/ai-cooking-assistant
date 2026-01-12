@@ -2,24 +2,25 @@
 
 Local recipe assistant using RAG (Retrieval-Augmented Generation) with Llama 3.3 70B via Ollama.
 
-## Current Status: Phase 3 Complete ✅
+## Current Status: Phase 4 Complete ✅
 
 - ✅ Phase 1: Data ingestion (88,399 recipes indexed)
 - ✅ Phase 2: Embeddings + vector store with GPU acceleration
 - ✅ Phase 3: Cross-encoder reranking + recipe cards
-- 🚧 Phase 4: LLM integration (next)
+- ✅ Phase 4: LLM integration with Ollama (LangChain LCEL)
+- 🚧 Phase 5: Memory & personalization (next)
 
 ## Features
 
-- Recommends real recipes from Food.com dataset (180K+ recipes, 88K indexed)
-- GPU-accelerated semantic search with ChromaDB
-- High-quality embeddings (all-mpnet-base-v2, 768-dim)
-- Cross-encoder reranking for improved relevance (ms-marco-MiniLM-L-6-v2)
-- Compact recipe cards for LLM context (Phase 3)
-- Learns user preferences and dietary restrictions (Phase 5)
-- Asks clarifying questions for better recommendations (Phase 4)
-- Supports "ingredients on hand" queries (Phase 4)
-- Fully local (no cloud dependencies)
+- **Conversational Interface**: Natural language chat powered by Llama 3.3 70B (Phase 4)
+- **Smart Recommendations**: Recommends real recipes from Food.com dataset (88K+ indexed)
+- **GPU-Accelerated Search**: Semantic search with ChromaDB + high-quality embeddings (all-mpnet-base-v2)
+- **Cross-Encoder Reranking**: Improved relevance with ms-marco-MiniLM-L-6-v2 (Phase 3)
+- **Intelligent Clarification**: Asks questions when constraints are insufficient (Phase 4)
+- **Constraint Extraction**: Rule-based NLP for ingredients, time, diet, cuisine, goals (Phase 4)
+- **Session Memory**: Rolling summaries and user preferences (Phase 4)
+- **Recipe Cards**: Compact LLM-ready representations (120-250 tokens) (Phase 3)
+- **Fully Local**: No cloud dependencies - runs entirely on your machine
 
 ## Tech Stack
 
@@ -118,18 +119,36 @@ python -m src.app.cli config
 - `--rerank` / `-r`: Enable cross-encoder reranking (100 candidates → 20 → display top k)
 - `--cards` / `-c`: Display detailed recipe cards with summaries and match explanations
 
-### Interactive Chat (Phase 4+)
+### Interactive Chat (Phase 4)
+
+Start a conversational session with the recipe assistant:
 
 ```bash
 python -m src.app.cli chat
 ```
+
+**Features:**
+- Natural language conversation powered by Llama 3.3 70B
+- Automatic constraint extraction (ingredients, time, diet, cuisine, goals)
+- Intelligent clarification when constraints are vague
+- Real-time recipe recommendations from 88K+ indexed recipes
+- Session memory with rolling summaries
+
+**Commands:**
+- `/new` - Start a new session
+- `/prefs` - Show your preferences
+- `quit` or `exit` - End the chat
+
+**Example:**
+```
+You: I have chicken and tomatoes, something quick and healthy
 
 ## Development
 
 ### Run Tests
 
 ```bash
-# Run all tests (82 tests total)
+# Run all tests (136 tests total: 82 Phase 1-3, 54 Phase 4)
 pytest
 
 # Run retrieval tests only
@@ -138,6 +157,9 @@ pytest tests/test_retrieval*.py -v
 # Run Phase 3 tests (reranking + recipe cards)
 pytest tests/test_rerank.py tests/test_recipe_cards.py -v
 
+# Run Phase 4 tests (memory + chains + integration)
+pytest tests/test_memory.py tests/test_chains.py tests/test_chat_integration.py -v
+
 # Run regression tests (verify no functionality broke)
 pytest tests/test_regression.py -v
 
@@ -145,11 +167,13 @@ pytest tests/test_regression.py -v
 pytest --cov=src
 ```
 
-**Test Suite** (Phase 3):
-- 82 total tests (all passing)
-- Unit tests: Reranking (6), Recipe cards (14), Ingestion (13), CLI (4)
-- Integration tests: Retrieval (23), Reranking (4), Recipe cards (4)
-- Regression tests: 14 tests verifying Phase 1-3 compatibility
+**Test Suite** (Phase 4):
+- 136 total tests (all passing)
+- **Phase 4 New Tests (54)**:
+  - Memory system (20): ProfileStore, SessionStore, RollingSummarizer
+  - Chains (27): ConstraintExtractor, prompt formatters, gate logic
+  - Integration (7): LCEL chain integration, end-to-end flow
+- **Phase 1-3 Tests (82)**: All regression tests passing
 
 ### Available Commands
 
@@ -174,8 +198,8 @@ python -m src.app.cli chat               # Interactive assistant
 
 - `PROJECT_PLAN.md` - Detailed phased development plan
 - `CLAUDE.md` - Architecture and development guidance
-- `PHASE_2_TEST_RESULTS.md` - Phase 2 test results and benchmarks
-- `PHASE_2_UPGRADE_SUMMARY.md` - GPU acceleration and quality improvements
+- `PHASE_2_UPGRADE_SUMMARY.md` - GPU acceleration and quality improvements (Phase 2)
+- `PHASE_4_SUMMARY.md` - LLM integration with LangChain LCEL (Phase 4)
 - `docs/GPU_SETUP.md` - GPU setup instructions
 
 ## Project Structure

@@ -33,7 +33,13 @@ Local Recipe Assistant: A fully-local, interactive dinner-planning assistant usi
   - RecipeCard builder with template-based summaries
   - Compact cards (120-250 tokens) with why_match explanations
   - All 82 tests passing (42 new tests for Phase 3, including 14 regression tests)
-- 🚧 **Phase 4 Next**: LLM integration with Ollama
+- ✅ **Phase 4 Complete**: LLM integration with Ollama
+  - LangChain LCEL chains for chat orchestration
+  - Memory system: ProfileStore, SessionStore, RollingSummarizer
+  - Rule-based constraint extraction (ingredients, time, diet, cuisine, goals)
+  - Conversational chat command with clarification vs recommendation branching
+  - All 136 tests passing (54 new tests for Phase 4)
+- 🚧 **Phase 5 Next**: Memory & personalization (feedback, learning)
 
 ## Development Workflow
 
