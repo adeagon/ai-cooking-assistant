@@ -48,6 +48,63 @@ def chat():
     asyncio.run(async_chat_session())
 
 
+def resolve_recipe_reference(ref: str, last_cards: list) -> tuple[str, str] | None:
+    """Resolve recipe reference (number or name) to (recipe_id, title).
+
+    Args:
+        ref: Reference string (e.g., "1", "chicken tacos")
+        last_cards: List of last recommended RecipeCard objects
+
+    Returns:
+        Tuple of (recipe_id, title) or None if not found
+    """
+    ref = ref.strip().strip('"\'')
+
+    # Try as number first (1-indexed)
+    if ref.isdigit():
+        idx = int(ref) - 1
+        if 0 <= idx < len(last_cards):
+            return (last_cards[idx].recipe_id, last_cards[idx].title)
+        return None
+
+    # Try fuzzy match on title
+    for card in last_cards:
+        if ref.lower() in card.title.lower():
+            return (card.recipe_id, card.title)
+
+    return None
+
+
+def display_full_recipe(recipe, console: Console):
+    """Display complete recipe with ingredients and instructions.
+
+    Args:
+        recipe: Recipe object from database
+        console: Rich console for output
+    """
+    from src.domain.models import Recipe
+
+    rating_str = ""
+    if recipe.rating_avg and recipe.rating_count:
+        rating_str = f"Rating: {recipe.rating_avg:.1f}/5 ({recipe.rating_count} reviews)\n"
+
+    time_str = ""
+    if recipe.minutes:
+        rating_str += f"Time: {recipe.minutes} minutes\n"
+
+    ingredients_str = "\n".join(f"  • {ing}" for ing in recipe.ingredients)
+    instructions_str = "\n".join(f"  {i+1}. {step}" for i, step in enumerate(recipe.instructions))
+
+    console.print(Panel(
+        f"[bold]{recipe.title}[/bold]\n"
+        f"{rating_str}{time_str}\n"
+        f"[bold]Ingredients:[/bold]\n{ingredients_str}\n\n"
+        f"[bold]Instructions:[/bold]\n{instructions_str}",
+        title="Recipe Details",
+        border_style="cyan"
+    ))
+
+
 async def async_chat_session():
     """Async chat session with LLM integration."""
     from pathlib import Path
@@ -57,15 +114,23 @@ async def async_chat_session():
     from src.retrieval.recipe_cards import RecipeCardBuilder
     from src.chains.retrieval import RetrievalRunnable
     from src.chains.chat_chain import build_chat_chain
-    from src.memory import ProfileStore, SessionStore, RollingSummarizer
+    from src.memory import ProfileStore, SessionStore, RollingSummarizer, FeedbackStore, HistoryStore
+    from src.domain.models import RecipeFeedback
+    from src.ingest.build_db import get_recipe_by_id
 
     console.print(Panel.fit(
         "[bold cyan]Recipe Assistant[/bold cyan]\n"
         "Local recipe recommendation powered by RAG + Llama 3.3 70B\n\n"
         "Commands:\n"
-        "  /new    - Start a new session\n"
-        "  /prefs  - Show your preferences\n"
-        "  quit    - Exit the chat",
+        "  /new          - Start a new session\n"
+        "  /prefs        - Show your preferences\n"
+        "  /like <ref>   - Like a recipe (by number or name)\n"
+        "  /dislike <ref>- Dislike a recipe\n"
+        "  /rate <1-5> <ref> - Rate a recipe\n"
+        "  /show <ref>   - Show full recipe details\n"
+        "  /cooked <ref> - Mark recipe as cooked\n"
+        "  /history      - Show cooking history\n"
+        "  quit          - Exit the chat",
         border_style="cyan"
     ))
 
@@ -103,12 +168,17 @@ async def async_chat_session():
         # Initialize memory stores
         profile_store = ProfileStore(db_path=settings.sqlite_db_path)
         session_store = SessionStore(db_path=settings.sqlite_db_path)
+        feedback_store = FeedbackStore(db_path=settings.sqlite_db_path)
+        history_store = HistoryStore(db_path=settings.sqlite_db_path)
         summarizer = RollingSummarizer()
 
         # Load profile and session
         profile = profile_store.load()
         session_id, session = session_store.get_or_create_current()
         rolling_summary = session_store.get_summary(session_id)
+
+        # Track last recommended cards for feedback commands
+        last_recommended_cards = []
 
         console.print("[green]Ready![/green]\n")
 
@@ -151,9 +221,130 @@ async def async_chat_session():
                     console.print(f"  Cuisines: {', '.join(profile.preferred_cuisines)}")
                 continue
 
+            # /like command
+            if user_input.strip().lower().startswith("/like"):
+                ref = user_input[5:].strip()
+                if not ref:
+                    console.print("[yellow]Usage: /like <number or recipe name>[/yellow]")
+                    continue
+                result = resolve_recipe_reference(ref, last_recommended_cards)
+                if result:
+                    recipe_id, title = result
+                    feedback_store.add_feedback(RecipeFeedback(
+                        recipe_id=recipe_id,
+                        feedback_type="like",
+                        session_id=session_id
+                    ))
+                    console.print(f"[green]✓ Liked: {title}[/green]")
+                else:
+                    console.print(f"[yellow]Recipe not found: {ref}[/yellow]")
+                continue
+
+            # /dislike command
+            if user_input.strip().lower().startswith("/dislike"):
+                ref = user_input[8:].strip()
+                if not ref:
+                    console.print("[yellow]Usage: /dislike <number or recipe name>[/yellow]")
+                    continue
+                result = resolve_recipe_reference(ref, last_recommended_cards)
+                if result:
+                    recipe_id, title = result
+                    feedback_store.add_feedback(RecipeFeedback(
+                        recipe_id=recipe_id,
+                        feedback_type="dislike",
+                        session_id=session_id
+                    ))
+                    console.print(f"[yellow]✓ Disliked: {title}[/yellow]")
+                else:
+                    console.print(f"[yellow]Recipe not found: {ref}[/yellow]")
+                continue
+
+            # /rate command
+            if user_input.strip().lower().startswith("/rate"):
+                parts = user_input[5:].strip().split(maxsplit=1)
+                if len(parts) < 2:
+                    console.print("[yellow]Usage: /rate <1-5> <number or recipe name>[/yellow]")
+                    continue
+                try:
+                    rating = int(parts[0])
+                    if not 1 <= rating <= 5:
+                        console.print("[yellow]Rating must be between 1 and 5[/yellow]")
+                        continue
+                    ref = parts[1]
+                    result = resolve_recipe_reference(ref, last_recommended_cards)
+                    if result:
+                        recipe_id, title = result
+                        feedback_store.add_feedback(RecipeFeedback(
+                            recipe_id=recipe_id,
+                            feedback_type="rate",
+                            rating=rating,
+                            session_id=session_id
+                        ))
+                        console.print(f"[green]✓ Rated {title}: {rating}/5[/green]")
+                    else:
+                        console.print(f"[yellow]Recipe not found: {ref}[/yellow]")
+                except ValueError:
+                    console.print("[yellow]Invalid rating. Must be a number 1-5[/yellow]")
+                continue
+
+            # /show command
+            if user_input.strip().lower().startswith("/show"):
+                ref = user_input[5:].strip()
+                if not ref:
+                    console.print("[yellow]Usage: /show <number or recipe name>[/yellow]")
+                    continue
+                result = resolve_recipe_reference(ref, last_recommended_cards)
+                if result:
+                    recipe_id, title = result
+                    recipe = get_recipe_by_id(settings.sqlite_db_path, recipe_id)
+                    if recipe:
+                        display_full_recipe(recipe, console)
+                    else:
+                        console.print(f"[yellow]Recipe not found in database: {recipe_id}[/yellow]")
+                else:
+                    console.print(f"[yellow]Recipe not found: {ref}[/yellow]")
+                continue
+
+            # /cooked command
+            if user_input.strip().lower().startswith("/cooked"):
+                ref = user_input[7:].strip()
+                if not ref:
+                    console.print("[yellow]Usage: /cooked <number or recipe name>[/yellow]")
+                    continue
+                result = resolve_recipe_reference(ref, last_recommended_cards)
+                if result:
+                    recipe_id, title = result
+                    history_store.add_cooked(recipe_id)
+                    console.print(f"[green]✓ Marked as cooked: {title}[/green]")
+                else:
+                    console.print(f"[yellow]Recipe not found: {ref}[/yellow]")
+                continue
+
+            # /history command
+            if user_input.strip().lower() == "/history":
+                history = history_store.get_cooking_history(limit=10)
+                if history:
+                    console.print(f"\n[bold]Recent Cooking History:[/bold]")
+                    for i, entry in enumerate(history, 1):
+                        # Get recipe title
+                        recipe = get_recipe_by_id(settings.sqlite_db_path, entry.recipe_id)
+                        title = recipe.title if recipe else entry.recipe_id
+                        cooked_str = entry.cooked_at.strftime("%Y-%m-%d") if entry.cooked_at else "Unknown"
+                        console.print(f"  {i}. {title} (cooked: {cooked_str})")
+                else:
+                    console.print("[yellow]No cooking history yet[/yellow]")
+                continue
+
             # Skip empty input
             if not user_input.strip():
                 continue
+
+            # Compute exclusion set from feedback and history
+            exclude_ids = (
+                feedback_store.get_liked_recipe_ids(limit=20) |
+                feedback_store.get_disliked_recipe_ids() |
+                history_store.get_recently_cooked_ids(days=7)
+            )
 
             # Build chain with current context
             chain = build_chat_chain(
@@ -161,7 +352,8 @@ async def async_chat_session():
                 retrieval_chain=retrieval_chain,
                 profile=profile,
                 session=session,
-                rolling_summary=rolling_summary
+                rolling_summary=rolling_summary,
+                exclude_recipe_ids=exclude_ids
             )
 
             # Invoke chain
@@ -172,10 +364,24 @@ async def async_chat_session():
             # Display response
             console.print(f"\n[bold blue]Assistant:[/bold blue] {response}")
 
-            # Update rolling summary
+            # Capture recipe cards if this was a recommendation (not clarification)
+            # Check if response contains recipe recommendations by invoking retrieval
             from src.chains.extractors import ConstraintExtractor
+            from src.chains.chat_chain import should_clarify
             extractor = ConstraintExtractor()
             constraints = extractor.extract_constraints(user_input)
+
+            # If this wasn't a clarification, capture the cards for feedback commands
+            input_data = {"user_input": user_input, "constraints": constraints, "session": session}
+            if not should_clarify(input_data):
+                try:
+                    retrieval_result = retrieval_chain.invoke(input_data)
+                    last_recommended_cards = retrieval_result.get("cards", [])
+                except Exception as e:
+                    logger.warning("Failed to capture recipe cards", error=str(e))
+                    last_recommended_cards = []
+
+            # Update rolling summary
             rolling_summary = summarizer.update_summary(rolling_summary, constraints, user_input)
             session_store.update_summary(session_id, rolling_summary)
 
