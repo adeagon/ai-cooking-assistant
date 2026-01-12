@@ -99,6 +99,16 @@ class CookingHistoryEntry(BaseModel):
     notes: str | None = None
 
 
+class SavedRecipe(BaseModel):
+    """Saved recipe in Recipe Box."""
+
+    id: int | None = None
+    recipe_id: str
+    title: str  # Store title for display without DB join
+    saved_at: datetime | None = None
+    notes: str | None = None
+
+
 class Constraints(BaseModel):
     """Extracted constraints from user input."""
 

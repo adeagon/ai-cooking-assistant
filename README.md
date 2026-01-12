@@ -14,6 +14,7 @@ Local recipe assistant using RAG (Retrieval-Augmented Generation) with Llama 3.3
 
 - **Conversational Interface**: Natural language chat powered by Llama 3.3 70B (Phase 4)
 - **Smart Recommendations**: Recommends real recipes from Food.com dataset (88K+ indexed)
+- **Recipe Box**: Save and bookmark recipes for later reference
 - **Feedback System**: Like/dislike/rate recipes to improve recommendations (Phase 5)
 - **Cooking History**: Track what you've cooked and when (Phase 5)
 - **Smart Filtering**: Excludes liked/cooked/disliked recipes from future recommendations (Phase 5)
@@ -147,6 +148,9 @@ python -m src.app.cli chat
 - `/show <ref>` - Show full recipe with ingredients and instructions (Phase 5)
 - `/cooked <ref>` - Mark recipe as cooked (Phase 5)
 - `/history` - Show cooking history (Phase 5)
+- `/save <ref>` - Save recipe to Recipe Box
+- `/unsave <ref>` - Remove recipe from Recipe Box
+- `/box` - List all saved recipes
 - `quit` or `exit` - End the chat
 
 **Example:**

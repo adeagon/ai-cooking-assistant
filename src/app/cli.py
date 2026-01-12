@@ -118,7 +118,7 @@ async def async_chat_session():
     from src.retrieval.recipe_cards import RecipeCardBuilder
     from src.chains.retrieval import RetrievalRunnable
     from src.chains.chat_chain import build_chat_chain
-    from src.memory import ProfileStore, SessionStore, RollingSummarizer, FeedbackStore, HistoryStore
+    from src.memory import ProfileStore, SessionStore, RollingSummarizer, FeedbackStore, HistoryStore, RecipeBoxStore
     from src.domain.models import RecipeFeedback
     from src.ingest.build_db import get_recipe_by_id
 
@@ -174,6 +174,7 @@ async def async_chat_session():
         session_store = SessionStore(db_path=settings.sqlite_db_path)
         feedback_store = FeedbackStore(db_path=settings.sqlite_db_path)
         history_store = HistoryStore(db_path=settings.sqlite_db_path)
+        recipe_box_store = RecipeBoxStore(db_path=settings.sqlite_db_path)
         summarizer = RollingSummarizer()
 
         # Load profile and session
@@ -337,6 +338,56 @@ async def async_chat_session():
                         console.print(f"  {i}. {title} (cooked: {cooked_str})")
                 else:
                     console.print("[yellow]No cooking history yet[/yellow]")
+                continue
+
+            # /save command
+            if user_input.strip().lower().startswith("/save"):
+                ref = user_input[5:].strip()
+                if not ref:
+                    console.print("[yellow]Usage: /save <number or recipe name>[/yellow]")
+                    continue
+                result = resolve_recipe_reference(ref, last_recommended_cards)
+                if result:
+                    recipe_id, title = result
+                    try:
+                        recipe_box_store.save_recipe(recipe_id, title)
+                        console.print(f"[green]✓ Saved to Recipe Box: {title}[/green]")
+                    except Exception as e:
+                        if "UNIQUE" in str(e):
+                            console.print(f"[yellow]Already saved: {title}[/yellow]")
+                        else:
+                            console.print(f"[red]Error saving recipe: {e}[/red]")
+                else:
+                    console.print(f"[yellow]Recipe not found: {ref}[/yellow]")
+                continue
+
+            # /unsave command
+            if user_input.strip().lower().startswith("/unsave"):
+                ref = user_input[7:].strip()
+                if not ref:
+                    console.print("[yellow]Usage: /unsave <number or recipe name>[/yellow]")
+                    continue
+                result = resolve_recipe_reference(ref, last_recommended_cards)
+                if result:
+                    recipe_id, title = result
+                    if recipe_box_store.remove_recipe(recipe_id):
+                        console.print(f"[green]✓ Removed from Recipe Box: {title}[/green]")
+                    else:
+                        console.print(f"[yellow]Recipe not found in box: {title}[/yellow]")
+                else:
+                    console.print(f"[yellow]Recipe not found: {ref}[/yellow]")
+                continue
+
+            # /box command
+            if user_input.strip().lower() == "/box":
+                saved_recipes = recipe_box_store.get_saved_recipes(limit=50)
+                if saved_recipes:
+                    console.print(f"\n[bold]Recipe Box ({len(saved_recipes)} saved):[/bold]")
+                    for i, saved in enumerate(saved_recipes, 1):
+                        saved_str = saved.saved_at.strftime("%Y-%m-%d") if saved.saved_at else "Unknown"
+                        console.print(f"  {i}. {saved.title} (saved: {saved_str})")
+                else:
+                    console.print("[yellow]Recipe Box is empty. Use /save <recipe> to add recipes![/yellow]")
                 continue
 
             # Skip empty input
