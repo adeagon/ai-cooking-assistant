@@ -107,7 +107,7 @@ def compute_ratings(
     # Convert to dict
     stats_dict = {}
     for _, row in rating_stats.iterrows():
-        recipe_id = str(row['recipe_id'])
+        recipe_id = str(int(row['recipe_id']))  # Convert to int first to match load_recipes format
         stats_dict[recipe_id] = RatingStats(
             rating_avg=float(row['rating_avg']),
             rating_count=int(row['rating_count'])

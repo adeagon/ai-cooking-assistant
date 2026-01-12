@@ -28,10 +28,10 @@ def download():
 
     try:
         download_foodcom_dataset(raw_dir)
-        console.print("[green]✓ Dataset downloaded successfully[/green]")
+        console.print("[green]OK Dataset downloaded successfully[/green]")
         console.print(f"Location: {raw_dir}")
     except Exception as e:
-        console.print(f"[red]✗ Download failed: {e}[/red]")
+        console.print(f"[red]ERROR Download failed: {e}[/red]")
         raise typer.Exit(1)
 
 
@@ -49,12 +49,12 @@ def process(
     interactions_csv = raw_dir / "RAW_interactions.csv"
 
     if not recipes_csv.exists():
-        console.print(f"[red]✗ Recipes file not found: {recipes_csv}[/red]")
+        console.print(f"[red]ERROR Recipes file not found: {recipes_csv}[/red]")
         console.print("[yellow]Run 'ingest download' first[/yellow]")
         raise typer.Exit(1)
 
     if not interactions_csv.exists():
-        console.print(f"[red]✗ Interactions file not found: {interactions_csv}[/red]")
+        console.print(f"[red]ERROR Interactions file not found: {interactions_csv}[/red]")
         console.print("[yellow]Run 'ingest download' first[/yellow]")
         raise typer.Exit(1)
 
@@ -64,7 +64,7 @@ def process(
 
     console.print("[cyan]Step 1/5: Computing ratings...[/cyan]")
     rating_stats = compute_ratings(recipes_csv, interactions_csv)
-    console.print(f"[green]✓ Computed ratings for {len(rating_stats)} recipes[/green]")
+    console.print(f"[green]OK Computed ratings for {len(rating_stats)} recipes[/green]")
 
     console.print("[cyan]Step 2/5: Loading and filtering recipes...[/cyan]")
     filtered_recipes = []
@@ -82,7 +82,7 @@ def process(
         if apply_quality_filters(recipe_dict, stats, min_rating_count, min_rating_avg):
             filtered_recipes.append((recipe_dict, stats))
 
-    console.print(f"[green]✓ Filtered {len(filtered_recipes)} recipes from {total_recipes} total[/green]")
+    console.print(f"[green]OK Filtered {len(filtered_recipes)} recipes from {total_recipes} total[/green]")
 
     console.print("[cyan]Step 3/5: Normalizing ingredients...[/cyan]")
     processed_recipes = []
@@ -110,7 +110,7 @@ def process(
         )
         processed_recipes.append(recipe)
 
-    console.print(f"[green]✓ Normalized {len(processed_recipes)} recipes[/green]")
+    console.print(f"[green]OK Normalized {len(processed_recipes)} recipes[/green]")
 
     console.print("[cyan]Step 4/5: Saving to JSONL...[/cyan]")
     jsonl_path = processed_dir / "recipes.jsonl"
@@ -118,14 +118,14 @@ def process(
         for recipe in processed_recipes:
             f.write(recipe.model_dump_json() + '\n')
 
-    console.print(f"[green]✓ Saved to {jsonl_path}[/green]")
+    console.print(f"[green]OK Saved to {jsonl_path}[/green]")
 
     console.print("[cyan]Step 5/5: Building SQLite database...[/cyan]")
     db_path = db_dir / "recipes.db"
     create_tables(db_path)
     count = insert_recipes(db_path, iter(processed_recipes))
 
-    console.print(f"[green]✓ Inserted {count} recipes into {db_path}[/green]")
+    console.print(f"[green]OK Inserted {count} recipes into {db_path}[/green]")
     console.print("\n[bold green]Processing complete![/bold green]")
 
 
@@ -135,7 +135,7 @@ def stats():
     db_path = Path("data/sqlite/recipes.db")
 
     if not db_path.exists():
-        console.print(f"[red]✗ Database not found: {db_path}[/red]")
+        console.print(f"[red]ERROR Database not found: {db_path}[/red]")
         console.print("[yellow]Run 'ingest process' first[/yellow]")
         raise typer.Exit(1)
 
@@ -154,14 +154,14 @@ def sample(recipe_id: str):
     db_path = Path("data/sqlite/recipes.db")
 
     if not db_path.exists():
-        console.print(f"[red]✗ Database not found: {db_path}[/red]")
+        console.print(f"[red]ERROR Database not found: {db_path}[/red]")
         console.print("[yellow]Run 'ingest process' first[/yellow]")
         raise typer.Exit(1)
 
     recipe = get_recipe_by_id(db_path, recipe_id)
 
     if recipe is None:
-        console.print(f"[red]✗ Recipe not found: {recipe_id}[/red]")
+        console.print(f"[red]ERROR Recipe not found: {recipe_id}[/red]")
         raise typer.Exit(1)
 
     console.print(f"\n[bold]{recipe.title}[/bold]")
