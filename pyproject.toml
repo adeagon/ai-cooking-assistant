@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "recipe-assistant"
 version = "0.1.0"
 description = "Local recipe assistant using RAG with Llama 3.3 70B"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
 dependencies = [
     "typer[all]>=0.9",
     "pydantic>=2.0",

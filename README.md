@@ -19,13 +19,22 @@ Local recipe assistant using RAG (Retrieval-Augmented Generation) with Llama 3.3
 - **Database**: SQLite
 - **CLI**: Typer
 
+## Requirements
+
+- **Python**: 3.11, 3.12, or 3.13 (Python 3.14 not yet supported due to onnxruntime compatibility)
+- **Ollama**: For local LLM inference
+
 ## Setup
 
 1. Clone the repository
-2. Copy `.env.example` to `.env` and configure
+2. Copy `.env.example` to `.env` and configure (optional, defaults work)
 3. Install dependencies:
    ```bash
+   # Core dependencies only
    pip install -e ".[dev]"
+
+   # Or with ML dependencies (chromadb, langchain, sentence-transformers)
+   pip install -e ".[dev,ml]"
    ```
 4. Install and run Ollama:
    ```bash
