@@ -6,6 +6,7 @@ from rich.panel import Panel
 from src import __version__
 from src.app.settings import settings
 from src.app.logging_config import configure_logging, get_logger
+from src.ingest import cli as ingest_cli
 
 # Initialize Typer app
 app = typer.Typer(
@@ -13,6 +14,9 @@ app = typer.Typer(
     help="Local recipe assistant using RAG with Llama 3.3 70B",
     add_completion=False
 )
+
+# Add ingest subcommand
+app.add_typer(ingest_cli.app, name="ingest")
 
 # Initialize Rich console for pretty output
 console = Console()

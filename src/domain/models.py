@@ -4,16 +4,36 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
+class NormalizedIngredient(BaseModel):
+    """Normalized ingredient with parsed components."""
+
+    name: str  # Normalized ingredient name
+    quantity: str | None = None  # e.g., "2", "1/2"
+    unit: str | None = None  # e.g., "cup", "tablespoon"
+    raw: str  # Original raw ingredient string
+
+
+class RatingStats(BaseModel):
+    """Aggregated rating statistics for a recipe."""
+
+    rating_avg: float
+    rating_count: int
+
+
 class Recipe(BaseModel):
     """Canonical recipe model."""
 
     recipe_id: str
     title: str
-    ingredients: list[str] = Field(default_factory=list)
+    ingredients: list[str] = Field(default_factory=list)  # Raw ingredients
+    ingredients_normalized: list[str] = Field(default_factory=list)  # Normalized names only
     instructions: list[str] = Field(default_factory=list)
-    tags: dict[str, str | bool | list[str]] = Field(default_factory=dict)
+    tags: list[str] = Field(default_factory=list)  # Simplified to list of tags
     rating_avg: float | None = None
     rating_count: int | None = None
+    minutes: int | None = None  # Cooking time in minutes
+    n_steps: int | None = None  # Number of steps
+    n_ingredients: int | None = None  # Number of ingredients
     source: str = "foodcom"
 
 
