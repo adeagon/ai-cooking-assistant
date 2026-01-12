@@ -19,6 +19,12 @@ Local Recipe Assistant: A fully-local, interactive dinner-planning assistant usi
 - **Config**: pydantic-settings
 - **Testing**: pytest
 
+## Development Workflow
+
+- **Make sure to create a feature branch for each Phase** (e.g., `phase-2-embeddings`, `phase-3-reranking`)
+- Merge to master only after phase completion and testing
+- Keep commits atomic and descriptive
+
 ## Build Commands
 
 ```bash
