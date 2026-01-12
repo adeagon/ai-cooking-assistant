@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "recipe-assistant"
+version = "0.1.0"
+description = "Local recipe assistant using RAG with Llama 3.3 70B"
+requires-python = ">=3.11"
+dependencies = [
+    "typer[all]>=0.9",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "structlog>=23.0",
+    "rich>=13.0",
+    "httpx>=0.25",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "pytest-asyncio>=0.21", "ruff>=0.1"]
+ml = [
+    "chromadb>=0.4.13",
+    "sentence-transformers>=2.2",
+    "langchain>=0.3",
+    "langchain-community>=0.3",
+    "langchain-core>=0.3",
+    "rank-bm25>=0.2",
+    "ingredient-parser-nlp>=0.1",
+    "sqlalchemy>=2.0",
+    "kaggle>=1.5",
+]
+
+[project.scripts]
+recipe-assistant = "src.app.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]

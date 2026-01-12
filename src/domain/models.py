@@ -1,0 +1,69 @@
+"""Domain models for recipes, preferences, and session state."""
+
+from typing import Literal
+from pydantic import BaseModel, Field
+
+
+class Recipe(BaseModel):
+    """Canonical recipe model."""
+
+    recipe_id: str
+    title: str
+    ingredients: list[str] = Field(default_factory=list)
+    instructions: list[str] = Field(default_factory=list)
+    tags: dict[str, str | bool | list[str]] = Field(default_factory=dict)
+    rating_avg: float | None = None
+    rating_count: int | None = None
+    source: str = "foodcom"
+
+
+class RecipeCard(BaseModel):
+    """Compact recipe card for LLM prompts (120-250 tokens)."""
+
+    recipe_id: str
+    title: str
+    rating_avg: float | None = None
+    rating_count: int | None = None
+    tags: list[str] = Field(default_factory=list)
+    time_total: int | None = None  # minutes
+    key_ingredients: list[str] = Field(default_factory=list)  # 8-15 ingredients
+    one_sentence_summary: str = ""
+    why_match: str = ""  # computed at query time
+
+
+class PreferenceProfile(BaseModel):
+    """User's long-term preferences."""
+
+    spice_level: Literal["none", "mild", "medium", "hot"] = "medium"
+    diet: Literal[
+        "none",
+        "vegetarian",
+        "vegan",
+        "pescatarian",
+        "keto",
+        "gluten_free"
+    ] = "none"
+    avoid_ingredients: list[str] = Field(default_factory=list)
+    preferred_cuisines: list[str] = Field(default_factory=list)
+    time_limit_default_minutes: int | None = None
+
+
+class SessionState(BaseModel):
+    """Session-specific constraints (tonight's dinner)."""
+
+    ingredients_on_hand: list[str] = Field(default_factory=list)
+    avoid_tonight: list[str] = Field(default_factory=list)
+    goals: list[str] = Field(default_factory=list)  # e.g., ["healthy", "quick"]
+    time_limit_minutes: int | None = None
+    servings: int | None = None
+
+
+class Constraints(BaseModel):
+    """Extracted constraints from user input."""
+
+    ingredients: list[str] = Field(default_factory=list)
+    avoid: list[str] = Field(default_factory=list)
+    time_limit: int | None = None
+    dietary: str | None = None
+    cuisine: str | None = None
+    goals: list[str] = Field(default_factory=list)
