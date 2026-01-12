@@ -129,3 +129,16 @@ class RetrievalResult(BaseModel):
     rating_avg: float | None = None
     rating_count: int | None = None
     minutes: int | None = None
+
+
+class IntentClassification(BaseModel):
+    """Result of intent classification from user input."""
+
+    intent: Literal[
+        "save", "like", "dislike", "rate", "show", "cooked",
+        "history", "box", "unsave", "new", "prefs", "conversation"
+    ]
+    confidence: Literal["high", "medium", "low"]
+    recipe_reference: str | None = None  # e.g., "first one", "2", "the pasta", "it"
+    rating_value: int | None = None  # 1-5 for rate intent
+    reasoning: str = ""  # Brief explanation of why this intent was chosen
