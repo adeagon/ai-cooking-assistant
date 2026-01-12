@@ -40,7 +40,7 @@ class Settings(BaseSettings):
         description="ChromaDB persistence directory"
     )
     sqlite_db_path: Path = Field(
-        default=Path("data/sqlite/app.db"),
+        default=Path("data/sqlite/recipes.db"),
         description="SQLite database path"
     )
 

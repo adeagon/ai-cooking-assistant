@@ -28,8 +28,12 @@ Local Recipe Assistant: A fully-local, interactive dinner-planning assistant usi
   - PyTorch 2.11 nightly with native RTX 5090 support
   - GPU-accelerated embedding generation (3.8x faster)
   - Increased retrieval parameters (k=100, k_rerank=20, k_context=6)
-  - All 27 tests passing
-- 🚧 **Phase 3 Next**: Reranking + recipe cards
+- ✅ **Phase 3 Complete**: Cross-encoder reranking + recipe cards
+  - ms-marco-MiniLM-L-6-v2 reranker (GPU-accelerated)
+  - RecipeCard builder with template-based summaries
+  - Compact cards (120-250 tokens) with why_match explanations
+  - All 82 tests passing (42 new tests for Phase 3, including 14 regression tests)
+- 🚧 **Phase 4 Next**: LLM integration with Ollama
 
 ## Development Workflow
 
@@ -42,6 +46,12 @@ Local Recipe Assistant: A fully-local, interactive dinner-planning assistant usi
   - Update `PROJECT_PLAN.md` if scope or timeline changes
   - Create phase summary documents (e.g., `PHASE_2_UPGRADE_SUMMARY.md`)
   - Verify all code examples and commands are accurate
+- **IMPORTANT: Review test coverage at the end of each phase**:
+  - Run full test suite and verify all tests pass
+  - Review existing test files for potential improvements or additions
+  - Add regression tests to verify new functionality doesn't break existing features
+  - Add integration tests for end-to-end workflows
+  - Update test documentation in `README.md` with new test counts and examples
 
 ## Build Commands
 
@@ -80,7 +90,7 @@ pytest -v
 
 1. **Ingestion Pipeline** (`src/ingest/`): Offline processing of Food.com dataset - loads, normalizes, embeds, and persists to vector store and SQLite.
 
-2. **Retrieval System** (`src/retrieval/`): RAG pipeline with retrieve (k=100) → rerank (k=20) → context (k=6) architecture. Phase 2 complete with GPU-accelerated vector search. Phase 3 will add cross-encoder reranking (deterministic code, not LLM).
+2. **Retrieval System** (`src/retrieval/`): RAG pipeline with retrieve (k=100) → rerank (k=20) → context (k=6) architecture. GPU-accelerated vector search (Phase 2) and cross-encoder reranking (Phase 3) complete. RecipeCard builder creates compact representations for LLM prompts.
 
 3. **LLM Layer** (`src/llm/`): Abstracted client interface (`LLMClient`) with Ollama implementation. Enables runtime swapping.
 
@@ -93,10 +103,10 @@ pytest -v
 
 ### Data Flow
 
-**Current (Phase 2)**:
-User query → GPU-accelerated embedding → Vector retrieval (100 candidates) → Return top results
+**Current (Phase 3)**:
+User query → GPU-accelerated embedding → Vector retrieval (100 candidates) → Cross-encoder rerank (20) → Build RecipeCards (6) → Display
 
-**Future (Phase 3+)**:
+**Future (Phase 4+)**:
 User query → Constraint extraction → Vector retrieval (100 candidates) → Cross-encoder rerank (20) → Build RecipeCards (6) → LLM generates response
 
 ### Key Design Constraints
