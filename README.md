@@ -178,6 +178,9 @@ pytest tests/test_memory.py tests/test_chains.py tests/test_chat_integration.py 
 # Run Phase 5 tests (feedback + cooking history + integration)
 pytest tests/test_feedback.py tests/test_history.py tests/test_feedback_integration.py -v
 
+# Run LLM integration tests (requires Ollama running)
+pytest tests/test_llm_chat_phase5.py -v -s -m llm
+
 # Run chat scenario tests only
 pytest tests/test_chat_scenarios.py -v
 
@@ -190,10 +193,11 @@ pytest --cov=src
 
 **Test Suite** (Phase 5):
 - 203 total tests (all passing)
-- **Phase 5 New Tests (45)**:
+- **Phase 5 New Tests (48)**:
   - FeedbackStore (12): Like/dislike/rate, cuisine learning
   - HistoryStore (10): Cooking tracking, date filtering
   - Integration (23): Recipe reference resolver, exclusion filtering, full workflows
+  - **LLM Integration (3)**: Full conversation tests with Ollama (requires `ollama serve`)
 - **Phase 4 Tests (76)**:
   - Memory system (20): ProfileStore, SessionStore, RollingSummarizer
   - Chains (27): ConstraintExtractor, prompt formatters, gate logic
