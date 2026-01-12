@@ -63,6 +63,18 @@ class Settings(BaseSettings):
         default=8192,
         description="Target context window size"
     )
+    llm_temperature: float = Field(
+        default=0.3,
+        description="LLM temperature for generation (0.0 = deterministic, 1.0 = creative)"
+    )
+    llm_max_tokens: int = Field(
+        default=1024,
+        description="Maximum tokens for LLM response"
+    )
+    ollama_timeout: float = Field(
+        default=300.0,
+        description="Ollama API timeout in seconds"
+    )
 
     # Logging
     log_level: str = Field(

@@ -29,46 +29,167 @@ logger = get_logger(__name__)
 @app.command()
 def chat():
     """Start an interactive recipe assistant chat session."""
+    import asyncio
+    from pathlib import Path
+
+    # Check if vector store and database exist
+    chroma_dir = Path(settings.chroma_persist_dir)
+    if not chroma_dir.exists():
+        console.print(f"[red]ERROR: Vector store not found at: {chroma_dir}[/red]")
+        console.print("[yellow]Run 'ingest embed' first to build the vector store[/yellow]")
+        raise typer.Exit(1)
+
+    if not settings.sqlite_db_path.exists():
+        console.print(f"[red]ERROR: Database not found at: {settings.sqlite_db_path}[/red]")
+        console.print("[yellow]Run 'ingest process' first to build the database[/yellow]")
+        raise typer.Exit(1)
+
+    # Run async chat session
+    asyncio.run(async_chat_session())
+
+
+async def async_chat_session():
+    """Async chat session with LLM integration."""
+    from pathlib import Path
+    from langchain_community.chat_models import ChatOllama
+    from src.retrieval.retriever import RecipeRetriever
+    from src.retrieval.rerank import RecipeReranker
+    from src.retrieval.recipe_cards import RecipeCardBuilder
+    from src.chains.retrieval import RetrievalRunnable
+    from src.chains.chat_chain import build_chat_chain
+    from src.memory import ProfileStore, SessionStore, RollingSummarizer
+
     console.print(Panel.fit(
         "[bold cyan]Recipe Assistant[/bold cyan]\n"
-        "Local recipe recommendation powered by RAG\n\n"
-        "Type 'quit' or 'exit' to end the session.",
+        "Local recipe recommendation powered by RAG + Llama 3.3 70B\n\n"
+        "Commands:\n"
+        "  /new    - Start a new session\n"
+        "  /prefs  - Show your preferences\n"
+        "  quit    - Exit the chat",
         border_style="cyan"
     ))
 
     logger.info("Starting chat session")
 
+    try:
+        # Initialize components
+        console.print("[dim]Initializing LLM and retrieval components...[/dim]")
+
+        # Initialize LLM
+        llm = ChatOllama(
+            base_url=settings.ollama_base_url,
+            model=settings.ollama_model,
+            temperature=settings.llm_temperature,
+            num_predict=settings.llm_max_tokens,
+        )
+
+        # Initialize retrieval components
+        retriever = RecipeRetriever(
+            chroma_dir=Path(settings.chroma_persist_dir),
+            embedding_model=settings.embedding_model
+        )
+
+        reranker = RecipeReranker(model_name=settings.reranker_model)
+
+        card_builder = RecipeCardBuilder(db_path=settings.sqlite_db_path)
+
+        retrieval_chain = RetrievalRunnable(
+            retriever=retriever,
+            reranker=reranker,
+            card_builder=card_builder,
+            settings=settings
+        )
+
+        # Initialize memory stores
+        profile_store = ProfileStore(db_path=settings.sqlite_db_path)
+        session_store = SessionStore(db_path=settings.sqlite_db_path)
+        summarizer = RollingSummarizer()
+
+        # Load profile and session
+        profile = profile_store.load()
+        session_id, session = session_store.get_or_create_current()
+        rolling_summary = session_store.get_summary(session_id)
+
+        console.print("[green]✓ Ready![/green]\n")
+
+        logger.info("Chat components initialized", session_id=session_id)
+
+    except Exception as e:
+        console.print(f"[red]ERROR: Failed to initialize chat: {e}[/red]")
+        if "Connection" in str(e) or "connect" in str(e).lower():
+            console.print("[yellow]Is Ollama running? Start with: ollama serve[/yellow]")
+        logger.exception("Chat initialization error")
+        raise typer.Exit(1)
+
+    # Main chat loop
     while True:
         try:
             # Get user input
             user_input = console.input("\n[bold green]You:[/bold green] ")
 
-            # Check for exit commands
+            # Check for commands
             if user_input.strip().lower() in ("quit", "exit"):
                 console.print("[yellow]Goodbye![/yellow]")
                 logger.info("Chat session ended by user")
                 break
 
+            if user_input.strip().lower() == "/new":
+                session_id = session_store.create()
+                session = session_store.get(session_id)
+                rolling_summary = ""
+                console.print("[green]✓ Started new session[/green]")
+                logger.info("New session created", session_id=session_id)
+                continue
+
+            if user_input.strip().lower() == "/prefs":
+                console.print(f"\n[bold]Your Preferences:[/bold]")
+                console.print(f"  Spice level: {profile.spice_level}")
+                console.print(f"  Diet: {profile.diet}")
+                if profile.avoid_ingredients:
+                    console.print(f"  Avoid: {', '.join(profile.avoid_ingredients)}")
+                if profile.preferred_cuisines:
+                    console.print(f"  Cuisines: {', '.join(profile.preferred_cuisines)}")
+                continue
+
             # Skip empty input
             if not user_input.strip():
                 continue
 
-            # Placeholder response (will be replaced with actual LLM integration)
-            console.print(
-                f"\n[bold blue]Assistant:[/bold blue] You said: {user_input}\n"
-                "[dim]This is a placeholder response. "
-                "LLM integration coming in later phases.[/dim]"
+            # Build chain with current context
+            chain = build_chat_chain(
+                llm=llm,
+                retrieval_chain=retrieval_chain,
+                profile=profile,
+                session=session,
+                rolling_summary=rolling_summary
             )
 
-            logger.debug("Processed user input", input_length=len(user_input))
+            # Invoke chain
+            console.print("\n[dim]Thinking...[/dim]")
+
+            response = await chain.ainvoke({"user_input": user_input})
+
+            # Display response
+            console.print(f"\n[bold blue]Assistant:[/bold blue] {response}")
+
+            # Update rolling summary
+            from src.chains.extractors import ConstraintExtractor
+            extractor = ConstraintExtractor()
+            constraints = extractor.extract_constraints(user_input)
+            rolling_summary = summarizer.update_summary(rolling_summary, constraints, user_input)
+            session_store.update_summary(session_id, rolling_summary)
+
+            logger.info("Processed user turn", input_length=len(user_input), response_length=len(response))
 
         except KeyboardInterrupt:
             console.print("\n[yellow]Goodbye![/yellow]")
             logger.info("Chat session interrupted")
             break
         except Exception as e:
-            console.print(f"[red]Error:[/red] {e}")
-            logger.error("Chat error", error=str(e))
+            console.print(f"\n[red]Error:[/red] {e}")
+            if "Connection" in str(e) or "connect" in str(e).lower():
+                console.print("[yellow]Lost connection to Ollama. Is it still running?[/yellow]")
+            logger.exception("Chat error")
 
 
 @app.command()
