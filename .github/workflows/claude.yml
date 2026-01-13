@@ -9,8 +9,6 @@ on:
     types: [opened, assigned]
   pull_request_review:
     types: [submitted]
-  pull_request:
-    types: [opened, synchronize]
 
 jobs:
   # Respond to @claude mentions in issues and PRs
@@ -40,32 +38,3 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           additional_permissions: |
             actions: read
-
-  # Auto-review new PRs
-  claude-review:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
-      issues: write
-      id-token: write
-      actions: read
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Run Claude Code Review
-        uses: anthropics/claude-code-action@v1
-        with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          prompt: |
-            Review this pull request. Focus on:
-            1. Code quality and best practices
-            2. Potential bugs or edge cases
-            3. Test coverage
-            4. Documentation completeness
-
-            Be constructive and specific. Suggest improvements where applicable.
