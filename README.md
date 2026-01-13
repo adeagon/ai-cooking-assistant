@@ -2,13 +2,14 @@
 
 Local recipe assistant using RAG (Retrieval-Augmented Generation) with Qwen 2.5 14B via Ollama.
 
-## Current Status: Phase 5 Complete ✅
+## Current Status: Phase 5+ Enhanced ✅
 
 - ✅ Phase 1: Data ingestion (88,399 recipes indexed)
 - ✅ Phase 2: Embeddings + vector store with GPU acceleration
 - ✅ Phase 3: Cross-encoder reranking + recipe cards
 - ✅ Phase 4: LLM integration with Ollama (LangChain LCEL)
 - ✅ Phase 5: Memory & personalization with feedback system
+- ✅ **Enhanced**: Data-driven constraint extraction + taste classification
 
 ## Features
 
@@ -22,7 +23,10 @@ Local recipe assistant using RAG (Retrieval-Augmented Generation) with Qwen 2.5 
 - **GPU-Accelerated Search**: Semantic search with ChromaDB + high-quality embeddings (all-mpnet-base-v2)
 - **Cross-Encoder Reranking**: Improved relevance with ms-marco-MiniLM-L-6-v2 (Phase 3)
 - **Intelligent Clarification**: Asks questions when constraints are insufficient (Phase 4)
-- **Constraint Extraction**: Rule-based NLP for ingredients, time, diet, cuisine, goals (Phase 4)
+- **Constraint Extraction**: Data-driven NLP for ingredients, time, diet, cuisine, goals (Enhanced)
+- **32 Cuisines Supported**: Asian, Korean, Greek, Middle-Eastern, and more loaded from recipe data
+- **Taste Tags**: Light, hearty, mild, rich classifications via LLM (parallel processing)
+- **Profile Preferences in Search**: User's preferred cuisines boost retrieval relevance
 - **Session Memory**: Rolling summaries and user preferences (Phase 4)
 - **Recipe Cards**: Compact LLM-ready representations (120-250 tokens) (Phase 3)
 - **Fully Local**: No cloud dependencies - runs entirely on your machine
@@ -182,7 +186,7 @@ You: /cooked 2
 ### Run Tests
 
 ```bash
-# Run all tests (206 tests total: 82 Phase 1-3, 76 Phase 4, 48 Phase 5)
+# Run all tests (267 tests total)
 pytest
 
 # Run retrieval tests only
@@ -210,22 +214,34 @@ pytest tests/test_regression.py -v
 pytest --cov=src
 ```
 
-**Test Suite** (Phase 5):
-- 206 total tests (all passing)
-- **Phase 5 New Tests (48)**:
-  - FeedbackStore (12): Like/dislike/rate, cuisine learning
-  - HistoryStore (10): Cooking tracking, date filtering
-  - Integration (23): Recipe reference resolver, exclusion filtering, full workflows
-  - **LLM Integration (3)**: Full conversation tests with Ollama (requires `ollama serve`)
-- **Total: 82 (Phase 1-3) + 76 (Phase 4) + 48 (Phase 5) = 206 tests**
-- **Phase 4 Tests (76)**:
-  - Memory system (20): ProfileStore, SessionStore, RollingSummarizer
-  - Chains (27): ConstraintExtractor, prompt formatters, gate logic
-  - Integration (7): LCEL chain integration, end-to-end flow
-  - Chat scenarios (22): Real-world conversation flows, constraint extraction, clarification gates
+**Test Suite**:
+- **267 total tests** (all passing)
+- **Enhanced Tests (12 new)**:
+  - Data-driven cuisine extraction (asian, korean, greek, middle-eastern)
+  - Goal extraction with fallbacks (light→low-calorie, cheap→inexpensive)
+  - Combined constraint extraction tests
+- **Phase 5 Tests (48)**: FeedbackStore, HistoryStore, integration workflows
+- **Phase 4 Tests (76)**: Memory system, chains, integration, chat scenarios
 - **Phase 1-3 Tests (82)**: All regression tests passing
 
 See `PHASE_4_TEST_RESULTS.md` for Phase 4 test results and `PHASE_5_SUMMARY.md` for Phase 5 implementation details.
+
+### Taste Classification (Optional Enhancement)
+
+Classify recipes with taste tags (light, hearty, mild, rich) using LLM:
+
+```bash
+# Run parallel classification (8 workers, ~4 recipes/sec)
+python scripts/classify_taste_tags_parallel.py
+
+# Check progress
+cat data/classification_progress.json | python -c "import sys,json; print(len(json.load(sys.stdin)))"
+
+# Run spot-check validation after classification
+python scripts/spot_check_classifications.py
+```
+
+This is optional but improves search results when users ask for "something light" or "hearty meals".
 
 ### Available Commands
 
@@ -267,7 +283,11 @@ ai-cooking-assistant/
 │   ├── retrieval/    # Vector search and retrieval
 │   ├── llm/          # LLM client (Phase 4+)
 │   ├── memory/       # User preferences (Phase 5+)
-│   └── chains/       # LangChain LCEL (Phase 4+)
+│   ├── chains/       # LangChain LCEL (Phase 4+)
+│   └── utils/        # Shared utilities (tag_loader, etc.)
+├── scripts/          # One-time scripts
+│   ├── classify_taste_tags_parallel.py  # LLM taste classification
+│   └── spot_check_classifications.py    # Validation script
 ├── tests/            # Unit and integration tests
 ├── data/             # Data directory (not in git)
 │   ├── raw/          # Downloaded datasets
