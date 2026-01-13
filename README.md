@@ -140,28 +140,42 @@ python -m src.app.cli chat
 - Real-time recipe recommendations from 88K+ indexed recipes
 - Session memory with rolling summaries
 
-**Commands:**
-- `/new` - Start a new session
-- `/prefs` - Show your preferences
-- `/like <ref>` - Like a recipe (by number or name) (Phase 5)
-- `/dislike <ref>` - Dislike a recipe (Phase 5)
-- `/rate <1-5> <ref>` - Rate a recipe (Phase 5)
-- `/show <ref>` - Show full recipe with ingredients and instructions (Phase 5)
-- `/cooked <ref>` - Mark recipe as cooked (Phase 5)
-- `/history` - Show cooking history (Phase 5)
-- `/save <ref>` - Save recipe to Recipe Box
-- `/unsave <ref>` - Remove recipe from Recipe Box
-- `/box` - List all saved recipes
-- `quit` or `exit` - End the chat
+**Commands** (use slash commands OR natural language):
 
-**Example:**
+| Slash Command | Natural Language Examples |
+|---------------|--------------------------|
+| `/new` | "start over", "new session", "reset" |
+| `/prefs` | "my preferences", "show settings" |
+| `/like <ref>` | "I loved the first one", "thumbs up", "that was great" |
+| `/dislike <ref>` | "didn't like it", "not for me", "thumbs down" |
+| `/rate <1-5> <ref>` | "give it 4 stars", "rate it a 3", "5 out of 5" |
+| `/show <ref>` | "show me the recipe", "what's in that", "full details" |
+| `/cooked <ref>` | "I made that", "cooked it last night", "tried the pasta" |
+| `/history` | "what have I cooked", "cooking history", "show history" |
+| `/save <ref>` | "save that recipe", "bookmark it", "add to my box" |
+| `/unsave <ref>` | "remove from saved", "unsave it" |
+| `/box` | "my saved recipes", "show bookmarks", "recipe box" |
+| `quit` / `exit` | "quit", "exit" |
+
+**Examples:**
 ```
+# Recipe discovery and feedback with natural language
 You: I have chicken and tomatoes, something quick and healthy
 Assistant: [Recommends 3 recipes]
-You: /like 1
-You: /show 1
+You: I loved the first one
+[Liked: Chicken Tacos]
+You: save that
+[Saved to Recipe Box: Chicken Tacos]
+You: show me the full recipe
 [Full recipe with ingredients and instructions displayed]
-You: /cooked 1
+
+# Using slash commands (still supported)
+You: quick pasta dinner
+Assistant: [Recommends recipes]
+You: /rate 4 2
+[Rated Pasta Carbonara: 4/5]
+You: /cooked 2
+[Marked as cooked: Pasta Carbonara]
 
 ## Development
 

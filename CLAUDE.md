@@ -45,7 +45,8 @@ Local Recipe Assistant: A fully-local, interactive dinner-planning assistant usi
   - Smart filtering: Excludes liked/disliked/recently cooked from recommendations
   - Full recipe display: `/show` command with ingredients and instructions
   - FeedbackStore and HistoryStore for persistent user data
-  - All 206 tests passing (48 new tests for Phase 5, including 3 LLM integration tests)
+  - **Natural language intents**: LLM-based classification for conversational commands
+  - All 218 tests passing (48 Phase 5 + 12 Recipe Box + 15 intent classification tests)
 
 ## Development Workflow
 
@@ -86,16 +87,16 @@ python -m src.app.cli search "chicken tomato spicy"
 # Run CLI chat (Phase 4+)
 python -m src.app.cli chat
 
-# Phase 5 CLI commands (in chat mode):
-# /like <ref>     - Like a recipe (by number or name)
-# /dislike <ref>  - Dislike a recipe
-# /rate <1-5> <ref> - Rate a recipe 1-5 stars
-# /show <ref>     - Show full recipe with ingredients and instructions
-# /cooked <ref>   - Mark recipe as cooked
-# /history        - View cooking history
-# /save <ref>     - Save recipe to Recipe Box (for bookmarking)
-# /unsave <ref>   - Remove recipe from Recipe Box
-# /box            - List all saved recipes
+# Phase 5 CLI commands (in chat mode) - use slash commands OR natural language:
+# /like <ref>     - Like a recipe (or "I loved that one")
+# /dislike <ref>  - Dislike a recipe (or "didn't like it")
+# /rate <1-5> <ref> - Rate a recipe (or "give it 4 stars")
+# /show <ref>     - Show full recipe (or "show me the recipe")
+# /cooked <ref>   - Mark recipe as cooked (or "I made that")
+# /history        - View cooking history (or "what have I cooked")
+# /save <ref>     - Save recipe to Recipe Box (or "save that recipe")
+# /unsave <ref>   - Remove recipe from Recipe Box (or "unsave it")
+# /box            - List all saved recipes (or "my saved recipes")
 
 # Run tests
 pytest
@@ -135,12 +136,23 @@ pytest -v
 
 ### Data Flow
 
-**Current (Phase 5)**:
+**Current (Phase 5 with Natural Language Intents)**:
 ```
-User Input (or /command)
+User Input
     |
     v
-[Command Detection: /like, /dislike, /rate, /show, /cooked, /history]
+Check for quit/exit
+    |
+    v
+[NEW] Natural Language Intent Classification (if not starting with /)
+    |  - LLM-based intent detection (like, save, show, rate, etc.)
+    |  - Quick pattern cache for stateless commands
+    |  - Conservative classification (defaults to conversation)
+    |
+    +-- intent detected? → Execute command → Continue
+    |
+    v
+Slash Command Detection (/like, /save, /show, etc.) [Fallback]
     |
     v (if not a command)
 Compute exclusion set (liked + disliked + recently cooked recipes)
@@ -167,7 +179,7 @@ Build RecipeCards (6 for LLM context)
 LLM generates response (clarification or recommendations)
     |
     v
-Display response + capture recipe cards for /commands
+Display response + capture recipe cards for commands
 ```
 
 ### Key Design Constraints
@@ -192,6 +204,7 @@ Display response + capture recipe cards for /commands
 - `SessionState`: Current session constraints (ingredients on hand, time limit, goals)
 - `RecipeFeedback`: User feedback on recipes (like, dislike, rate) with timestamps (Phase 5)
 - `CookingHistoryEntry`: Record of cooked recipes with dates and optional notes (Phase 5)
+- `IntentClassification`: LLM-based intent classification result (intent, confidence, recipe_reference, rating_value, reasoning)
 - `SavedRecipe`: Bookmarked recipe in Recipe Box with title, saved date, and notes
 
 ## LangChain Chains (LCEL)
