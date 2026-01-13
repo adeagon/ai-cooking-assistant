@@ -32,6 +32,13 @@ class TestQuickIntentCheck:
         assert check_quick_intent("preferences") == "prefs"
         assert check_quick_intent("settings") == "prefs"
 
+    def test_commands_match(self):
+        """Test commands/help command variations."""
+        assert check_quick_intent("commands") == "commands"
+        assert check_quick_intent("help") == "commands"
+        assert check_quick_intent("what commands") == "commands"
+        assert check_quick_intent("show commands") == "commands"
+
     def test_no_match(self):
         """Test that non-matching input returns None."""
         assert check_quick_intent("I loved that recipe") is None
@@ -141,6 +148,49 @@ class TestIntentClassification:
         assert result.intent == "history"
         assert result.recipe_reference is None
 
+    def test_source_field_box(self):
+        """Test source field set to box for Recipe Box context."""
+        result = IntentClassification(
+            intent="show",
+            confidence="high",
+            recipe_reference="green curry",
+            source="box",
+            reasoning="Show recipe from recipe box"
+        )
+        assert result.intent == "show"
+        assert result.source == "box"
+        assert result.recipe_reference == "green curry"
+
+    def test_source_field_recommendations(self):
+        """Test source field set to recommendations."""
+        result = IntentClassification(
+            intent="like",
+            confidence="high",
+            recipe_reference="first one",
+            source="recommendations",
+            reasoning="Like recipe from recommendations"
+        )
+        assert result.source == "recommendations"
+
+    def test_source_field_default_none(self):
+        """Test source field defaults to None."""
+        result = IntentClassification(
+            intent="show",
+            confidence="high",
+            recipe_reference="2",
+            reasoning="Show recipe"
+        )
+        assert result.source is None
+
+    def test_commands_intent(self):
+        """Test commands intent."""
+        result = IntentClassification(
+            intent="commands",
+            confidence="high",
+            reasoning="User wants to see available commands"
+        )
+        assert result.intent == "commands"
+
 
 # LLM integration tests would go here with @pytest.mark.llm decorator
 # These require Ollama to be running and are more expensive
@@ -228,3 +278,38 @@ class TestIntentClassificationLLM:
 
         assert result.intent == "show"
         assert "pasta" in result.recipe_reference.lower()
+
+    def test_show_from_recipe_box(self, llm, sample_cards):
+        """Test show recipe from recipe box context."""
+        from src.chains.intent_classifier import classify_intent
+
+        result = classify_intent(
+            "show me the green curry recipe from my recipe box",
+            sample_cards,
+            llm
+        )
+
+        assert result.intent == "show"
+        assert result.source == "box"
+        assert "green curry" in result.recipe_reference.lower() or "curry" in result.recipe_reference.lower()
+
+    def test_cooked_from_saved_recipes(self, llm, sample_cards):
+        """Test cooked intent from saved recipes context."""
+        from src.chains.intent_classifier import classify_intent
+
+        result = classify_intent(
+            "I made the pasta from my saved recipes",
+            sample_cards,
+            llm
+        )
+
+        assert result.intent == "cooked"
+        assert result.source == "box"
+
+    def test_commands_intent_detected(self, llm, sample_cards):
+        """Test commands intent detected via natural language."""
+        from src.chains.intent_classifier import classify_intent
+
+        result = classify_intent("what commands can I use", sample_cards, llm)
+
+        assert result.intent == "commands"

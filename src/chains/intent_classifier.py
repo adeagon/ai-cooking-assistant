@@ -17,6 +17,7 @@ QUICK_INTENTS = {
     "box": ["box", "saved recipes", "my recipes", "bookmarks", "my bookmarks", "recipe box"],
     "new": ["new", "start over", "new session", "reset", "begin again"],
     "prefs": ["prefs", "preferences", "my preferences", "settings", "my settings"],
+    "commands": ["commands", "help", "what commands", "show commands", "list commands"],
 }
 
 # Intent classification prompt
@@ -35,6 +36,12 @@ AVAILABLE ACTIONS:
 - unsave: Remove from saved recipes ("unsave", "remove from bookmarks", "delete from box", "remove that")
 - new: Start new session ("start over", "new search", "reset", "begin again", "clear session")
 - prefs: Show preferences ("my preferences", "what are my settings", "show prefs", "dietary restrictions")
+- commands: Show available commands ("help", "what commands", "list commands")
+- addpref: Add a preference (NOT typical - usually handled by slash command)
+- filter_previous: Query about ALREADY-SHOWN recipes - sort/filter/ask about previous recommendations
+  Examples: "which of those has best reviews?", "the quickest one", "highest rated", "which is fastest?"
+  IMPORTANT: Use this when user references "those", "these", "of them" and asks about ratings/time/reviews
+  Set filter_type to: "best_rated", "quickest", "most_reviewed", or describe the filter
 - conversation: Regular recipe query or chat (DEFAULT - use when uncertain)
 
 CRITICAL RULES:
@@ -50,7 +57,12 @@ RECIPE REFERENCES:
 - Extract how user refers to recipe: "first one", "the pasta", "it", "that", number like "2"
 - If no clear reference but action is clear, set recipe_reference to "it" or "last"
 - Recipe references are REQUIRED for: like, dislike, rate, show, save, unsave, cooked
-- Recipe references are NOT needed for: history, box, new, prefs
+- Recipe references are NOT needed for: history, box, new, prefs, commands
+
+SOURCE FIELD (for show/cooked/like/dislike/rate actions):
+- Set source="box" if user mentions "recipe box", "saved recipes", "from my box", "bookmarked"
+- Set source="recommendations" if referring to recent recommendations (default, can be omitted)
+- This helps resolve recipe references from the correct place
 
 CONFIDENCE LEVELS:
 - high: Clear action verb + clear recipe reference (or stateless action like history/box)
@@ -72,6 +84,9 @@ Input: "Give it 4 stars" -> rate, high confidence, recipe_reference="it", rating
 Input: "Show me the pasta recipe" -> show, high confidence, recipe_reference="pasta"
 Input: "What have I cooked recently" -> history, high confidence
 Input: "My saved recipes" -> box, high confidence
+Input: "Show me the green curry from my recipe box" -> show, high confidence, recipe_reference="green curry", source="box"
+Input: "What's in that bookmarked pasta recipe" -> show, high confidence, recipe_reference="pasta", source="box"
+Input: "I made the chicken tikka from my saved recipes" -> cooked, high confidence, recipe_reference="chicken tikka", source="box"
 
 Analyze the user input and output a structured classification."""),
     ("human", "{user_input}")

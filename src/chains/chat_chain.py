@@ -33,18 +33,28 @@ def should_clarify(input_data: dict[str, Any]) -> bool:
 
     # Check if we have actionable constraints
     has_ingredients = bool(constraints.ingredients or session.ingredients_on_hand)
-    has_goals = bool(constraints.goals or constraints.dietary)
+    has_time_or_dietary = bool(constraints.time_limit or constraints.dietary)
+    has_goals = bool(constraints.goals)
     has_cuisine = bool(constraints.cuisine)
+    has_dish = bool(constraints.dish_name)
 
-    # If no constraints at all, ask clarifying questions
-    needs_clarification = not (has_ingredients or has_goals or has_cuisine)
+    # dish_name alone is NOT sufficient - even "tikka masala" benefits from
+    # clarification about meat type, spice level, traditional vs modern, etc.
+    # Require at least one additional constraint with dish_name
+    if has_dish and not (has_ingredients or has_time_or_dietary or has_goals):
+        needs_clarification = True
+    else:
+        # Standard check: any actionable constraint is sufficient
+        needs_clarification = not (has_ingredients or has_time_or_dietary or has_goals or has_cuisine or has_dish)
 
     logger.info(
         "Clarification check",
         needs_clarification=needs_clarification,
         has_ingredients=has_ingredients,
+        has_time_or_dietary=has_time_or_dietary,
         has_goals=has_goals,
         has_cuisine=has_cuisine,
+        has_dish=has_dish,
     )
 
     return needs_clarification
@@ -81,9 +91,12 @@ def build_chat_chain(
 
     # Build recommendation chain (with retrieval)
     recommendation_chain = (
-        # First, add exclude_ids to input
-        RunnablePassthrough.assign(exclude_recipe_ids=lambda _: exclude_ids)
-        # Then, retrieve recipes (with exclusion filtering)
+        # First, add exclude_ids and rolling_summary to input for retrieval context
+        RunnablePassthrough.assign(
+            exclude_recipe_ids=lambda _: exclude_ids,
+            rolling_summary=lambda _: rolling_summary,
+        )
+        # Then, retrieve recipes (with exclusion filtering and context)
         | retrieval_chain
         # Then, build prompt with cards
         | RunnablePassthrough.assign(

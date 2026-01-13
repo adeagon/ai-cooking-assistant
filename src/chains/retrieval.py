@@ -45,7 +45,7 @@ class RetrievalRunnable(Runnable):
         """Execute retrieval pipeline.
 
         Args:
-            input_data: Dictionary with "user_input", "constraints", and optional "exclude_recipe_ids" keys
+            input_data: Dictionary with "user_input", "constraints", "rolling_summary", and optional "exclude_recipe_ids" keys
             config: Optional LangChain config
 
         Returns:
@@ -54,9 +54,10 @@ class RetrievalRunnable(Runnable):
         user_input = input_data.get("user_input", "")
         constraints: Constraints = input_data.get("constraints", Constraints())
         exclude_ids: set[str] = input_data.get("exclude_recipe_ids", set())
+        rolling_summary = input_data.get("rolling_summary", "")
 
-        # Build query from user input and constraints
-        query = self._build_query(user_input, constraints)
+        # Build query from user input, constraints, and conversation context
+        query = self._build_query(user_input, constraints, rolling_summary)
 
         logger.info("Starting retrieval pipeline", query=query, k_retrieve=self.settings.k_retrieve)
 
@@ -86,21 +87,33 @@ class RetrievalRunnable(Runnable):
 
         return {**input_data, "cards": cards, "cards_text": cards_text}
 
-    def _build_query(self, user_input: str, constraints: Constraints) -> str:
-        """Build search query from input and constraints.
+    def _build_query(self, user_input: str, constraints: Constraints, rolling_summary: str = "") -> str:
+        """Build search query from input, constraints, and conversation context.
 
         Args:
             user_input: Original user input
             constraints: Extracted constraints
+            rolling_summary: Conversation context from previous turns
 
         Returns:
             Enhanced query string
         """
         query_parts = [user_input]
 
+        # Add conversation context (e.g., "cuisine: indian" from previous turns)
+        # This helps maintain context when user says things like "traditional ingredients"
+        if rolling_summary:
+            # Extract key terms from rolling summary
+            # Format is like: "ingredients: chicken; cuisine: indian; goals: spicy"
+            query_parts.append(rolling_summary)
+
         # Add ingredients to query
         if constraints.ingredients:
             query_parts.append(" ".join(constraints.ingredients))
+
+        # Add dish name (important for specific dish requests like "tikka masala")
+        if constraints.dish_name:
+            query_parts.append(constraints.dish_name)
 
         # Add cuisine to query
         if constraints.cuisine:

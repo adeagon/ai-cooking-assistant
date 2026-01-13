@@ -4,6 +4,9 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 
+# Register datetime adapters for Python 3.12+ compatibility
+from src.memory import _sqlite_compat  # noqa: F401
+
 from src.app.logging_config import get_logger
 from src.domain.models import SavedRecipe
 
