@@ -4,12 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Local Recipe Assistant: A fully-local, interactive dinner-planning assistant using RAG (Retrieval-Augmented Generation) with Llama 3.3 70B via Ollama. Recommends real recipes from an indexed Food.com dataset, learns user preferences, asks clarifying questions, and supports "ingredients on hand" queries.
+Local Recipe Assistant: A fully-local, interactive dinner-planning assistant using RAG (Retrieval-Augmented Generation) with Qwen 2.5 14B via Ollama. Recommends real recipes from an indexed Food.com dataset, learns user preferences, asks clarifying questions, and supports "ingredients on hand" queries.
 
 ## Tech Stack
 
 - **Python**: 3.11-3.13
-- **LLM Runtime**: Ollama (local HTTP API) with Llama 3.3 70B Instruct
+- **LLM Runtime**: Ollama (local HTTP API) with Qwen 2.5 14B
 - **Vector Store**: ChromaDB with 88K recipes
 - **Embeddings**: sentence-transformers (`all-mpnet-base-v2`, 768-dim)
 - **GPU**: PyTorch 2.11 nightly with native RTX 5090 support (CUDA 12.8)
