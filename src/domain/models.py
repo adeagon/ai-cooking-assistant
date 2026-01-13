@@ -138,10 +138,11 @@ class IntentClassification(BaseModel):
     intent: Literal[
         "save", "like", "dislike", "rate", "show", "cooked",
         "history", "box", "unsave", "new", "prefs", "commands",
-        "addpref", "conversation"
+        "addpref", "filter_previous", "conversation"
     ]
     confidence: Literal["high", "medium", "low"]
     recipe_reference: str | None = None  # e.g., "first one", "2", "the pasta", "it"
     rating_value: int | None = None  # 1-5 for rate intent
     source: Literal["box", "recommendations"] | None = None  # Where to look for recipe
+    filter_type: str | None = None  # For filter_previous: "best_rated", "quickest", "most_reviewed"
     reasoning: str = ""  # Brief explanation of why this intent was chosen

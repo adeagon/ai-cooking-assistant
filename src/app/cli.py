@@ -26,6 +26,26 @@ configure_logging(settings.log_level)
 logger = get_logger(__name__)
 
 
+def normalize_for_matching(text: str) -> str:
+    """Normalize text for fuzzy recipe name matching.
+
+    Handles apostrophes, extra spaces, and case differences.
+
+    Args:
+        text: Text to normalize
+
+    Returns:
+        Normalized lowercase text for comparison
+    """
+    import re
+    # Remove various apostrophe characters
+    text = text.lower()
+    text = text.replace("'", "").replace("'", "").replace("`", "")
+    # Normalize whitespace
+    text = re.sub(r'\s+', ' ', text)
+    return text.strip()
+
+
 @app.command()
 def chat():
     """Start an interactive recipe assistant chat session."""
@@ -251,6 +271,41 @@ def execute_intent(
         ))
         return True
 
+    # Handle filter_previous intent - sort/filter previous recommendations
+    if intent == "filter_previous":
+        if not last_cards:
+            console.print("[yellow]No recent recommendations to filter. Try asking for recipe suggestions first.[/yellow]")
+            return True
+
+        filter_type = intent_result.filter_type or "best_rated"
+        sorted_cards = list(last_cards)  # Copy to avoid mutating original
+
+        if filter_type in ("best_rated", "best rated", "highest rated", "best reviews"):
+            # Sort by rating (highest first), handle None values
+            sorted_cards.sort(key=lambda c: (c.rating_avg or 0, c.rating_count or 0), reverse=True)
+            console.print(f"\n[bold]Sorted by best rating:[/bold]")
+        elif filter_type in ("quickest", "fastest", "least time", "shortest"):
+            # Sort by time (lowest first), handle None values
+            sorted_cards.sort(key=lambda c: c.time_total if c.time_total else float('inf'))
+            console.print(f"\n[bold]Sorted by quickest time:[/bold]")
+        elif filter_type in ("most_reviewed", "most reviewed", "most reviews", "popular"):
+            # Sort by review count (highest first)
+            sorted_cards.sort(key=lambda c: c.rating_count or 0, reverse=True)
+            console.print(f"\n[bold]Sorted by most reviewed:[/bold]")
+        else:
+            # Default to rating
+            sorted_cards.sort(key=lambda c: (c.rating_avg or 0, c.rating_count or 0), reverse=True)
+            console.print(f"\n[bold]Sorted by rating ({filter_type}):[/bold]")
+
+        # Display sorted results
+        for i, card in enumerate(sorted_cards, 1):
+            rating_str = f"{card.rating_avg:.1f}/5" if card.rating_avg else "N/A"
+            review_str = f"({card.rating_count} reviews)" if card.rating_count else ""
+            time_str = f" | {card.time_total}m" if card.time_total else ""
+            console.print(f"  {i}. {card.title} - {rating_str} {review_str}{time_str}")
+
+        return True
+
     # Handle recipe-reference commands (need a recipe)
     if not ref:
         console.print("[yellow]Which recipe do you mean? Try being more specific or use a number.[/yellow]")
@@ -268,10 +323,11 @@ def execute_intent(
                 if 0 <= idx < len(saved_recipes):
                     result = (saved_recipes[idx].recipe_id, saved_recipes[idx].title)
             except ValueError:
-                # Try name matching
-                ref_lower = ref.lower()
+                # Try name matching with normalization (handles apostrophes, etc.)
+                ref_normalized = normalize_for_matching(ref)
                 for saved in saved_recipes:
-                    if ref_lower in saved.title.lower():
+                    title_normalized = normalize_for_matching(saved.title)
+                    if ref_normalized in title_normalized:
                         result = (saved.recipe_id, saved.title)
                         break
 

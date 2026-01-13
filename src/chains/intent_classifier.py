@@ -38,6 +38,10 @@ AVAILABLE ACTIONS:
 - prefs: Show preferences ("my preferences", "what are my settings", "show prefs", "dietary restrictions")
 - commands: Show available commands ("help", "what commands", "list commands")
 - addpref: Add a preference (NOT typical - usually handled by slash command)
+- filter_previous: Query about ALREADY-SHOWN recipes - sort/filter/ask about previous recommendations
+  Examples: "which of those has best reviews?", "the quickest one", "highest rated", "which is fastest?"
+  IMPORTANT: Use this when user references "those", "these", "of them" and asks about ratings/time/reviews
+  Set filter_type to: "best_rated", "quickest", "most_reviewed", or describe the filter
 - conversation: Regular recipe query or chat (DEFAULT - use when uncertain)
 
 CRITICAL RULES:

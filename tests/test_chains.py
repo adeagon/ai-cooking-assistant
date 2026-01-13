@@ -213,13 +213,34 @@ class TestShouldClarify:
 
         assert should_clarify(input_data) is False
 
-    def test_no_clarify_with_dish_name(self):
-        """Test that dish_name satisfies requirement."""
+    def test_clarify_with_dish_name_alone(self):
+        """Test that dish_name ALONE requires clarification (to ask about meat, style, etc.)."""
         input_data = {
             "constraints": Constraints(dish_name="tikka masala"),
             "session": SessionState(),
         }
 
+        # dish_name alone should trigger clarification to ask about meat type, style, etc.
+        assert should_clarify(input_data) is True
+
+    def test_no_clarify_with_dish_name_and_dietary(self):
+        """Test that dish_name + dietary constraint satisfies requirement."""
+        input_data = {
+            "constraints": Constraints(dish_name="tikka masala", dietary="vegetarian"),
+            "session": SessionState(),
+        }
+
+        # dish_name + dietary is sufficient - no clarification needed
+        assert should_clarify(input_data) is False
+
+    def test_no_clarify_with_dish_name_and_time(self):
+        """Test that dish_name + time constraint satisfies requirement."""
+        input_data = {
+            "constraints": Constraints(dish_name="tikka masala", time_limit=30),
+            "session": SessionState(),
+        }
+
+        # dish_name + time is sufficient - no clarification needed
         assert should_clarify(input_data) is False
 
 
