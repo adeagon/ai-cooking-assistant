@@ -11,7 +11,7 @@ from src.ingest import cli as ingest_cli
 # Initialize Typer app
 app = typer.Typer(
     name="recipe-assistant",
-    help="Local recipe assistant using RAG with Llama 3.3 70B",
+    help="Local recipe assistant using RAG with local LLM",
     add_completion=False
 )
 
@@ -124,17 +124,21 @@ async def async_chat_session():
 
     console.print(Panel.fit(
         "[bold cyan]Recipe Assistant[/bold cyan]\n"
-        "Local recipe recommendation powered by RAG + Llama 3.3 70B\n\n"
+        f"Local recipe recommendation powered by RAG + {settings.ollama_model}\n\n"
         "Commands:\n"
-        "  /new          - Start a new session\n"
-        "  /prefs        - Show your preferences\n"
-        "  /like <ref>   - Like a recipe (by number or name)\n"
-        "  /dislike <ref>- Dislike a recipe\n"
+        "  /new           - Start a new session\n"
+        "  /prefs         - Show your preferences\n"
+        "  /like <ref>    - Like a recipe (by number or name)\n"
+        "  /dislike <ref> - Dislike a recipe\n"
         "  /rate <1-5> <ref> - Rate a recipe\n"
-        "  /show <ref>   - Show full recipe details\n"
-        "  /cooked <ref> - Mark recipe as cooked\n"
-        "  /history      - Show cooking history\n"
-        "  quit          - Exit the chat",
+        "  /show <ref>    - Show full recipe details\n"
+        "  /cooked <ref>  - Mark recipe as cooked\n"
+        "  /history       - Show cooking history\n"
+        "  /save <ref>    - Save recipe to Recipe Box\n"
+        "  /unsave <ref>  - Remove from Recipe Box\n"
+        "  /box           - View saved recipes\n"
+        "  quit           - Exit the chat\n\n"
+        "[dim]Tip: You can also use natural language like 'I loved that one' or 'show me recipe 2'[/dim]",
         border_style="cyan"
     ))
 
