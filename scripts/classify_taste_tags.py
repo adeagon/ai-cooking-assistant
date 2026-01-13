@@ -127,8 +127,8 @@ def main():
     medium_confidence = 0
     batch_updates = []
 
-    print("Starting taste classification...")
-    print("Press Ctrl+C to stop (progress will be saved)\n")
+    print("Starting taste classification...", flush=True)
+    print("Press Ctrl+C to stop (progress will be saved)\n", flush=True)
 
     try:
         for recipe_id, title, ingredients_json, tags_json in cursor:
@@ -146,7 +146,15 @@ def main():
                 continue
 
             try:
+                # Verbose logging for first 10 recipes
+                if total <= 10:
+                    print(f"  Classifying #{total}: {title[:50]}...", flush=True)
+
                 new_taste_tags, confidence = classify_recipe(title, ingredients, tags)
+
+                # Verbose logging for first 10 recipes
+                if total <= 10:
+                    print(f"    -> {new_taste_tags} ({confidence})", flush=True)
 
                 # Only accept HIGH confidence classifications
                 if new_taste_tags and confidence == "high":
@@ -164,7 +172,8 @@ def main():
                 if total % 100 == 0:
                     print(
                         f"Processed {total} recipes, {updated} updated, "
-                        f"{medium_confidence} medium confidence"
+                        f"{medium_confidence} medium confidence",
+                        flush=True,
                     )
 
                 # Batch save every 500 recipes
