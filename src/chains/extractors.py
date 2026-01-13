@@ -52,6 +52,43 @@ class ConstraintExtractor:
         "mediterranean": r"\bmediterranean\b",
     }
 
+    # Dish name to cuisine mapping (for recognizing specific dishes)
+    DISH_TO_CUISINE = {
+        "indian": [
+            "tikka masala", "chicken tikka", "butter chicken", "biryani",
+            "vindaloo", "korma", "saag", "paneer", "dal", "naan",
+            "samosa", "tandoori", "masala", "chana", "aloo"
+        ],
+        "thai": [
+            "pad thai", "green curry", "red curry", "tom yum", "tom kha",
+            "massaman", "panang", "larb", "som tam", "satay"
+        ],
+        "chinese": [
+            "kung pao", "general tso", "orange chicken", "lo mein", "chow mein",
+            "fried rice", "dim sum", "wontons", "dumplings", "mapo tofu"
+        ],
+        "japanese": [
+            "ramen", "teriyaki", "tempura", "katsu", "udon", "sashimi",
+            "miso", "gyoza", "edamame", "yakitori", "tonkatsu"
+        ],
+        "mexican": [
+            "tacos", "burrito", "enchilada", "quesadilla", "tamale",
+            "carnitas", "fajita", "tostada", "chimichanga", "mole"
+        ],
+        "italian": [
+            "carbonara", "bolognese", "lasagna", "risotto", "parmigiana",
+            "alfredo", "primavera", "marinara", "pesto", "bruschetta"
+        ],
+        "french": [
+            "coq au vin", "ratatouille", "bouillabaisse", "cassoulet",
+            "quiche", "soufflé", "croque", "boeuf bourguignon"
+        ],
+        "mediterranean": [
+            "falafel", "hummus", "shawarma", "gyro", "kebab",
+            "tabbouleh", "tzatziki", "moussaka", "spanakopita"
+        ],
+    }
+
     # Goal patterns
     GOAL_PATTERNS = {
         "healthy": r"\bhealthy\b",
@@ -85,8 +122,8 @@ class ConstraintExtractor:
         # Extract dietary restrictions
         dietary = self._extract_dietary(text)
 
-        # Extract cuisine
-        cuisine = self._extract_cuisine(text)
+        # Extract cuisine and dish name
+        cuisine, dish_name = self._extract_cuisine_and_dish(text)
 
         # Extract goals
         goals = self._extract_goals(text)
@@ -98,6 +135,7 @@ class ConstraintExtractor:
             dietary=dietary,
             cuisine=cuisine,
             goals=goals,
+            dish_name=dish_name,
         )
 
         logger.info(
@@ -106,6 +144,7 @@ class ConstraintExtractor:
             time_limit=time_limit,
             dietary=dietary,
             cuisine=cuisine,
+            dish_name=dish_name,
             goals=goals,
         )
 
@@ -150,13 +189,33 @@ class ConstraintExtractor:
 
         return None
 
-    def _extract_cuisine(self, text: str) -> str | None:
-        """Extract cuisine preference."""
+    def _extract_cuisine_and_dish(self, text: str) -> tuple[str | None, str | None]:
+        """Extract cuisine preference and specific dish name.
+
+        Returns:
+            Tuple of (cuisine, dish_name)
+        """
+        cuisine = None
+        dish_name = None
+
+        # First check explicit cuisine patterns
         for cuisine_name, pattern in self.CUISINE_PATTERNS.items():
             if re.search(pattern, text, re.IGNORECASE):
-                return cuisine_name
+                cuisine = cuisine_name
+                break
 
-        return None
+        # Then check for dish names that imply cuisine
+        for cuisine_name, dishes in self.DISH_TO_CUISINE.items():
+            for dish in dishes:
+                if dish in text:
+                    # Found a dish name - extract cuisine if not already set
+                    if not cuisine:
+                        cuisine = cuisine_name
+                    # Always capture the dish name for search queries
+                    dish_name = dish
+                    return cuisine, dish_name
+
+        return cuisine, dish_name
 
     def _extract_goals(self, text: str) -> list[str]:
         """Extract user goals/preferences."""

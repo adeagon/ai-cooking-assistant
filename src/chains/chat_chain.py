@@ -35,9 +35,10 @@ def should_clarify(input_data: dict[str, Any]) -> bool:
     has_ingredients = bool(constraints.ingredients or session.ingredients_on_hand)
     has_goals = bool(constraints.goals or constraints.dietary)
     has_cuisine = bool(constraints.cuisine)
+    has_dish = bool(constraints.dish_name)  # Specific dish name is sufficient
 
     # If no constraints at all, ask clarifying questions
-    needs_clarification = not (has_ingredients or has_goals or has_cuisine)
+    needs_clarification = not (has_ingredients or has_goals or has_cuisine or has_dish)
 
     logger.info(
         "Clarification check",
@@ -45,6 +46,7 @@ def should_clarify(input_data: dict[str, Any]) -> bool:
         has_ingredients=has_ingredients,
         has_goals=has_goals,
         has_cuisine=has_cuisine,
+        has_dish=has_dish,
     )
 
     return needs_clarification
@@ -81,9 +83,12 @@ def build_chat_chain(
 
     # Build recommendation chain (with retrieval)
     recommendation_chain = (
-        # First, add exclude_ids to input
-        RunnablePassthrough.assign(exclude_recipe_ids=lambda _: exclude_ids)
-        # Then, retrieve recipes (with exclusion filtering)
+        # First, add exclude_ids and rolling_summary to input for retrieval context
+        RunnablePassthrough.assign(
+            exclude_recipe_ids=lambda _: exclude_ids,
+            rolling_summary=lambda _: rolling_summary,
+        )
+        # Then, retrieve recipes (with exclusion filtering and context)
         | retrieval_chain
         # Then, build prompt with cards
         | RunnablePassthrough.assign(

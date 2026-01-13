@@ -46,6 +46,9 @@ class RollingSummarizer:
         if new_constraints.cuisine:
             points.append(f"cuisine: {new_constraints.cuisine}")
 
+        if new_constraints.dish_name:
+            points.append(f"dish: {new_constraints.dish_name}")
+
         if new_constraints.goals:
             goals_str = ", ".join(new_constraints.goals[:2])
             points.append(f"goals: {goals_str}")

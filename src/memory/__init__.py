@@ -1,5 +1,8 @@
 """User memory: preferences, session state, and summaries."""
 
+# Import sqlite compat first to register datetime adapters (fixes Python 3.12+ warning)
+from src.memory import _sqlite_compat  # noqa: F401
+
 from src.memory.feedback_store import FeedbackStore
 from src.memory.history_store import HistoryStore
 from src.memory.profile_store import ProfileStore

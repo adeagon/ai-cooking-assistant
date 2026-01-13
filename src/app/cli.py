@@ -109,6 +109,38 @@ def display_full_recipe(recipe, console: Console):
     ))
 
 
+def update_learned_preferences(feedback_store, profile_store, console: Console | None = None) -> bool:
+    """Update user profile with preferences learned from feedback.
+
+    Args:
+        feedback_store: FeedbackStore instance
+        profile_store: ProfileStore instance
+        console: Optional console for output
+
+    Returns:
+        True if preferences were updated
+    """
+    # Get cuisines learned from likes (requires 3+ likes)
+    learned_cuisines = feedback_store.get_preferred_cuisines_from_likes(min_count=3)
+
+    if learned_cuisines:
+        # Get current profile
+        profile = profile_store.load()
+        current_cuisines = set(c.lower() for c in profile.preferred_cuisines)
+        new_cuisines = [c for c in learned_cuisines if c.lower() not in current_cuisines]
+
+        if new_cuisines:
+            # Merge learned cuisines with existing preferences
+            updated_cuisines = list(profile.preferred_cuisines) + new_cuisines
+            profile_store.update(preferred_cuisines=updated_cuisines)
+
+            if console:
+                console.print(f"[dim]📚 Learned preference: {', '.join(new_cuisines)}[/dim]")
+            return True
+
+    return False
+
+
 def execute_intent(
     intent_result,
     last_cards: list,
@@ -191,13 +223,61 @@ def execute_intent(
             console.print(f"  Cuisines: {', '.join(profile.preferred_cuisines)}")
         return True
 
+    if intent == "commands":
+        # Display the same help as /commands slash command
+        console.print(Panel.fit(
+            "[bold cyan]Available Commands[/bold cyan]\n\n"
+            "[bold]Session:[/bold]\n"
+            "  /new             - Start a new session\n"
+            "  /prefs           - Show your preferences\n"
+            "  /addpref <type> <value> - Add a preference\n"
+            "                    Types: cuisine, avoid, diet, spice, time\n"
+            "  /commands        - Show this help\n\n"
+            "[bold]Recipe Feedback:[/bold]\n"
+            "  /like <ref>      - Like a recipe\n"
+            "  /dislike <ref>   - Dislike a recipe\n"
+            "  /rate <1-5> <ref> - Rate a recipe\n"
+            "  /cooked <ref>    - Mark recipe as cooked\n\n"
+            "[bold]Recipe Box:[/bold]\n"
+            "  /save <ref>      - Save recipe to your box\n"
+            "  /unsave <ref>    - Remove recipe from box\n"
+            "  /box             - List all saved recipes\n"
+            "  /show <ref>      - Show full recipe\n"
+            "  /show box <N>    - Show recipe from box\n\n"
+            "[bold]History:[/bold]\n"
+            "  /history         - View cooking history\n\n"
+            "[dim]<ref> can be: number, name, 'it', 'that', etc.[/dim]",
+            title="Help"
+        ))
+        return True
+
     # Handle recipe-reference commands (need a recipe)
     if not ref:
         console.print("[yellow]Which recipe do you mean? Try being more specific or use a number.[/yellow]")
         return True
 
-    # Try to resolve reference with some fallbacks
-    result = resolve_recipe_reference(ref, last_cards)
+    # Check if we should resolve from Recipe Box (natural language "from my recipe box")
+    result = None
+    if intent_result.source == "box":
+        # Try to resolve from Recipe Box first
+        saved_recipes = recipe_box_store.get_saved_recipes(limit=50)
+        if saved_recipes:
+            # Try numeric reference first
+            try:
+                idx = int(ref) - 1
+                if 0 <= idx < len(saved_recipes):
+                    result = (saved_recipes[idx].recipe_id, saved_recipes[idx].title)
+            except ValueError:
+                # Try name matching
+                ref_lower = ref.lower()
+                for saved in saved_recipes:
+                    if ref_lower in saved.title.lower():
+                        result = (saved.recipe_id, saved.title)
+                        break
+
+    # Fall back to last recommendations if no box match or not from box
+    if not result:
+        result = resolve_recipe_reference(ref, last_cards)
 
     # If "it" or "that" and no match, try index 0 (most recent)
     if not result and ref.lower() in ["it", "that", "this"] and last_cards:
@@ -217,6 +297,8 @@ def execute_intent(
             session_id=session_id
         ))
         console.print(f"[green]✓ Liked: {title}[/green]")
+        # Check for learned preferences after liking
+        update_learned_preferences(feedback_store, profile_store, console)
         return True
 
     if intent == "dislike":
@@ -295,18 +377,14 @@ async def async_chat_session():
     console.print(Panel.fit(
         "[bold cyan]Recipe Assistant[/bold cyan]\n"
         f"Local recipe recommendation powered by RAG + {settings.ollama_model}\n\n"
-        "Commands:\n"
-        "  /new           - Start a new session\n"
-        "  /prefs         - Show your preferences\n"
-        "  /like <ref>    - Like a recipe (by number or name)\n"
-        "  /dislike <ref> - Dislike a recipe\n"
-        "  /rate <1-5> <ref> - Rate a recipe\n"
+        "Type /commands for full list. Key commands:\n"
+        "  /like <ref>    - Like a recipe\n"
         "  /show <ref>    - Show full recipe details\n"
-        "  /cooked <ref>  - Mark recipe as cooked\n"
-        "  /history       - Show cooking history\n"
-        "  /save <ref>    - Save recipe to Recipe Box\n"
-        "  /unsave <ref>  - Remove from Recipe Box\n"
+        "  /save <ref>    - Save to Recipe Box\n"
         "  /box           - View saved recipes\n"
+        "  /prefs         - Show preferences\n"
+        "  /addpref       - Add a preference\n"
+        "  /commands      - Show all commands\n"
         "  quit           - Exit the chat\n\n"
         "[dim]Tip: You can also use natural language like 'I loved that one' or 'show me recipe 2'[/dim]",
         border_style="cyan"
@@ -382,6 +460,39 @@ async def async_chat_session():
                 logger.info("Chat session ended by user")
                 break
 
+            # /commands - show all available commands
+            if user_input.strip().lower() in ("/commands", "/help"):
+                console.print(Panel.fit(
+                    "[bold cyan]Available Commands[/bold cyan]\n\n"
+                    "[bold]Session:[/bold]\n"
+                    "  /new             - Start a new session\n"
+                    "  /prefs           - Show your preferences\n"
+                    "  /addpref <type> <value> - Add a preference\n"
+                    "  /commands        - Show this help\n\n"
+                    "[bold]Recipe Feedback:[/bold]\n"
+                    "  /like <ref>      - Like a recipe (by number or name)\n"
+                    "  /dislike <ref>   - Dislike a recipe\n"
+                    "  /rate <1-5> <ref> - Rate a recipe 1-5 stars\n"
+                    "  /cooked <ref>    - Mark recipe as cooked\n\n"
+                    "[bold]Recipe Box:[/bold]\n"
+                    "  /save <ref>      - Save recipe to Recipe Box\n"
+                    "  /unsave <ref>    - Remove from Recipe Box\n"
+                    "  /box             - View saved recipes\n"
+                    "  /show <ref>      - Show full recipe details\n"
+                    "  /show box <N>    - Show recipe N from Recipe Box\n\n"
+                    "[bold]History:[/bold]\n"
+                    "  /history         - Show cooking history\n\n"
+                    "[bold]Preference Types for /addpref:[/bold]\n"
+                    "  cuisine <name>   - Add preferred cuisine (italian, mexican, asian...)\n"
+                    "  avoid <ingredient> - Add ingredient to avoid\n"
+                    "  diet <type>      - Set diet (none, vegetarian, vegan, keto...)\n"
+                    "  spice <level>    - Set spice level (none, mild, medium, hot)\n"
+                    "  time <minutes>   - Set default cooking time limit\n\n"
+                    "[dim]Tip: You can also use natural language like 'I loved that one'[/dim]",
+                    border_style="cyan"
+                ))
+                continue
+
             # Try natural language intent classification (skip for explicit slash commands)
             if not user_input.strip().startswith("/"):
                 try:
@@ -423,6 +534,77 @@ async def async_chat_session():
                     console.print(f"  Avoid: {', '.join(profile.avoid_ingredients)}")
                 if profile.preferred_cuisines:
                     console.print(f"  Cuisines: {', '.join(profile.preferred_cuisines)}")
+                if profile.time_limit_default_minutes:
+                    console.print(f"  Default time: {profile.time_limit_default_minutes} minutes")
+                # Show learned preferences
+                learned_cuisines = feedback_store.get_preferred_cuisines_from_likes(min_count=3)
+                if learned_cuisines:
+                    console.print(f"\n[dim]Learned from your likes ({len(learned_cuisines)} cuisines):[/dim]")
+                    console.print(f"  [dim]{', '.join(learned_cuisines)}[/dim]")
+                continue
+
+            # /addpref command - manually set preferences
+            if user_input.strip().lower().startswith("/addpref"):
+                parts = user_input[8:].strip().split(maxsplit=1)
+                if len(parts) < 2:
+                    console.print("[yellow]Usage: /addpref <type> <value>[/yellow]")
+                    console.print("[dim]Types: cuisine, avoid, diet, spice, time[/dim]")
+                    continue
+                pref_type, value = parts[0].lower(), parts[1]
+
+                if pref_type == "cuisine":
+                    current = list(profile.preferred_cuisines)
+                    if value.lower() not in [c.lower() for c in current]:
+                        current.append(value.lower())
+                        profile_store.update(preferred_cuisines=current)
+                        profile = profile_store.load()  # Reload profile
+                        console.print(f"[green]✓ Added cuisine preference: {value}[/green]")
+                    else:
+                        console.print(f"[yellow]Already in preferences: {value}[/yellow]")
+
+                elif pref_type == "avoid":
+                    current = list(profile.avoid_ingredients)
+                    if value.lower() not in [i.lower() for i in current]:
+                        current.append(value.lower())
+                        profile_store.update(avoid_ingredients=current)
+                        profile = profile_store.load()
+                        console.print(f"[green]✓ Will avoid: {value}[/green]")
+                    else:
+                        console.print(f"[yellow]Already avoiding: {value}[/yellow]")
+
+                elif pref_type == "diet":
+                    valid_diets = ["none", "vegetarian", "vegan", "pescatarian", "keto", "gluten_free"]
+                    if value.lower() in valid_diets:
+                        profile_store.update(diet=value.lower())
+                        profile = profile_store.load()
+                        console.print(f"[green]✓ Set diet: {value}[/green]")
+                    else:
+                        console.print(f"[yellow]Invalid diet. Options: {', '.join(valid_diets)}[/yellow]")
+
+                elif pref_type == "spice":
+                    valid_spice = ["none", "mild", "medium", "hot"]
+                    if value.lower() in valid_spice:
+                        profile_store.update(spice_level=value.lower())
+                        profile = profile_store.load()
+                        console.print(f"[green]✓ Set spice level: {value}[/green]")
+                    else:
+                        console.print(f"[yellow]Invalid spice level. Options: {', '.join(valid_spice)}[/yellow]")
+
+                elif pref_type == "time":
+                    try:
+                        minutes = int(value)
+                        if minutes > 0:
+                            profile_store.update(time_limit_default_minutes=minutes)
+                            profile = profile_store.load()
+                            console.print(f"[green]✓ Set default time limit: {minutes} minutes[/green]")
+                        else:
+                            console.print("[yellow]Time must be positive[/yellow]")
+                    except ValueError:
+                        console.print("[yellow]Time must be a number (minutes)[/yellow]")
+
+                else:
+                    console.print(f"[yellow]Unknown preference type: {pref_type}[/yellow]")
+                    console.print("[dim]Types: cuisine, avoid, diet, spice, time[/dim]")
                 continue
 
             # /like command
@@ -440,6 +622,9 @@ async def async_chat_session():
                         session_id=session_id
                     ))
                     console.print(f"[green]✓ Liked: {title}[/green]")
+                    # Check for learned preferences after liking
+                    if update_learned_preferences(feedback_store, profile_store, console):
+                        profile = profile_store.load()  # Reload profile with new preferences
                 else:
                     console.print(f"[yellow]Recipe not found: {ref}[/yellow]")
                 continue
@@ -491,12 +676,47 @@ async def async_chat_session():
                     console.print("[yellow]Invalid rating. Must be a number 1-5[/yellow]")
                 continue
 
-            # /show command
+            # /show command - supports both recommendations and Recipe Box
             if user_input.strip().lower().startswith("/show"):
                 ref = user_input[5:].strip()
                 if not ref:
                     console.print("[yellow]Usage: /show <number or recipe name>[/yellow]")
+                    console.print("[dim]  /show box <N> - Show recipe N from Recipe Box[/dim]")
                     continue
+
+                # Check for Recipe Box reference: "box 1", "box 2", etc.
+                if ref.lower().startswith("box"):
+                    box_ref = ref[3:].strip()
+                    saved_recipes = recipe_box_store.get_saved_recipes(limit=50)
+                    if not saved_recipes:
+                        console.print("[yellow]Recipe Box is empty[/yellow]")
+                        continue
+                    try:
+                        box_num = int(box_ref)
+                        if 1 <= box_num <= len(saved_recipes):
+                            saved = saved_recipes[box_num - 1]
+                            recipe = get_recipe_by_id(settings.sqlite_db_path, saved.recipe_id)
+                            if recipe:
+                                display_full_recipe(recipe, console)
+                            else:
+                                console.print(f"[yellow]Recipe not found in database: {saved.recipe_id}[/yellow]")
+                        else:
+                            console.print(f"[yellow]Invalid box number. You have {len(saved_recipes)} saved recipes.[/yellow]")
+                    except ValueError:
+                        # Try matching by name in Recipe Box
+                        found = False
+                        for saved in saved_recipes:
+                            if box_ref.lower() in saved.title.lower():
+                                recipe = get_recipe_by_id(settings.sqlite_db_path, saved.recipe_id)
+                                if recipe:
+                                    display_full_recipe(recipe, console)
+                                    found = True
+                                    break
+                        if not found:
+                            console.print(f"[yellow]Recipe not found in box: {box_ref}[/yellow]")
+                    continue
+
+                # Standard resolution from last recommendations
                 result = resolve_recipe_reference(ref, last_recommended_cards)
                 if result:
                     recipe_id, title = result
@@ -506,7 +726,19 @@ async def async_chat_session():
                     else:
                         console.print(f"[yellow]Recipe not found in database: {recipe_id}[/yellow]")
                 else:
-                    console.print(f"[yellow]Recipe not found: {ref}[/yellow]")
+                    # Also try Recipe Box as fallback
+                    saved_recipes = recipe_box_store.get_saved_recipes(limit=50)
+                    found = False
+                    for saved in saved_recipes:
+                        if ref.lower() in saved.title.lower():
+                            recipe = get_recipe_by_id(settings.sqlite_db_path, saved.recipe_id)
+                            if recipe:
+                                display_full_recipe(recipe, console)
+                                found = True
+                                break
+                    if not found:
+                        console.print(f"[yellow]Recipe not found: {ref}[/yellow]")
+                        console.print("[dim]Tip: Use /show box <N> for recipes from your Recipe Box[/dim]")
                 continue
 
             # /cooked command

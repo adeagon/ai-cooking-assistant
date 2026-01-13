@@ -113,6 +113,48 @@ class TestConstraintExtractor:
         assert constraints.cuisine is None
         assert constraints.goals == []
 
+    def test_extract_dish_tikka_masala(self, extractor):
+        """Test extracting tikka masala as Indian cuisine."""
+        constraints = extractor.extract_constraints("I want chicken tikka masala")
+
+        assert constraints.cuisine == "indian"
+        assert constraints.dish_name == "tikka masala"
+
+    def test_extract_dish_pad_thai(self, extractor):
+        """Test extracting pad thai as Thai cuisine."""
+        constraints = extractor.extract_constraints("make me pad thai")
+
+        assert constraints.cuisine == "thai"
+        assert constraints.dish_name == "pad thai"
+
+    def test_extract_dish_carbonara(self, extractor):
+        """Test extracting carbonara as Italian cuisine."""
+        constraints = extractor.extract_constraints("I'd like pasta carbonara")
+
+        assert constraints.cuisine == "italian"
+        assert constraints.dish_name == "carbonara"
+
+    def test_extract_dish_ramen(self, extractor):
+        """Test extracting ramen as Japanese cuisine."""
+        constraints = extractor.extract_constraints("chicken ramen sounds good")
+
+        assert constraints.cuisine == "japanese"
+        assert constraints.dish_name == "ramen"
+
+    def test_extract_dish_butter_chicken(self, extractor):
+        """Test extracting butter chicken as Indian cuisine."""
+        constraints = extractor.extract_constraints("butter chicken for dinner")
+
+        assert constraints.cuisine == "indian"
+        assert constraints.dish_name == "butter chicken"
+
+    def test_explicit_cuisine_with_dish(self, extractor):
+        """Test that explicit cuisine takes precedence."""
+        constraints = extractor.extract_constraints("indian curry recipe")
+
+        assert constraints.cuisine == "indian"
+        # curry is in the dish list but "indian" is matched first by pattern
+
 
 class TestShouldClarify:
     """Tests for should_clarify gate function."""
@@ -166,6 +208,15 @@ class TestShouldClarify:
         """Test that cuisine satisfies requirement."""
         input_data = {
             "constraints": Constraints(cuisine="italian"),
+            "session": SessionState(),
+        }
+
+        assert should_clarify(input_data) is False
+
+    def test_no_clarify_with_dish_name(self):
+        """Test that dish_name satisfies requirement."""
+        input_data = {
+            "constraints": Constraints(dish_name="tikka masala"),
             "session": SessionState(),
         }
 
