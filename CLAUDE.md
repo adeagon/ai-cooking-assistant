@@ -46,7 +46,12 @@ Local Recipe Assistant: A fully-local, interactive dinner-planning assistant usi
   - Full recipe display: `/show` command with ingredients and instructions
   - FeedbackStore and HistoryStore for persistent user data
   - **Natural language intents**: LLM-based classification for conversational commands
-  - All 218 tests passing (48 Phase 5 + 12 Recipe Box + 15 intent classification tests)
+- ✅ **Enhanced Constraint Extraction**: Data-driven cuisine/goal recognition
+  - **32 cuisines** loaded from recipe database (asian, korean, greek, etc.)
+  - **Goal fallbacks**: light→low-calorie, cheap→inexpensive, hearty→comfort-food
+  - **Profile preferences**: User's preferred cuisines boost retrieval relevance
+  - **Taste classification**: LLM-based scripts for light/hearty/mild/rich tags
+  - All 267 tests passing (12 new tests for enhanced extraction)
 
 ## Development Workflow
 
@@ -112,6 +117,10 @@ pytest tests/test_retrieval*.py -v
 
 # Run with verbose output
 pytest -v
+
+# Taste classification (optional, enhances search for taste preferences)
+python scripts/classify_taste_tags_parallel.py  # 8-worker parallel (~4 recipes/sec)
+python scripts/spot_check_classifications.py    # Validate classification accuracy
 ```
 
 ## Architecture
@@ -133,6 +142,10 @@ pytest -v
    - **RecipeBoxStore**: Saved/bookmarked recipes for later reference (no exclusion from recommendations)
 
 5. **CLI App** (`src/app/`): Typer-based conversational interface.
+
+6. **Utilities** (`src/utils/`): Shared utilities for the application:
+   - **tag_loader**: Loads valid cuisines and goals from recipe database with LRU caching
+   - Provides fallback mappings for user-friendly terms (light→low-calorie, etc.)
 
 ### Data Flow
 
