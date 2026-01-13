@@ -155,6 +155,67 @@ class TestConstraintExtractor:
         assert constraints.cuisine == "indian"
         # curry is in the dish list but "indian" is matched first by pattern
 
+    def test_extract_cuisine_asian(self, extractor):
+        """Test extracting generic 'asian' cuisine (loaded from DB)."""
+        constraints = extractor.extract_constraints("I want asian food")
+
+        assert constraints.cuisine == "asian"
+
+    def test_extract_cuisine_korean(self, extractor):
+        """Test extracting korean cuisine."""
+        constraints = extractor.extract_constraints("korean style dishes")
+
+        assert constraints.cuisine == "korean"
+
+    def test_extract_cuisine_middle_eastern(self, extractor):
+        """Test extracting hyphenated cuisine (middle-eastern)."""
+        constraints = extractor.extract_constraints("middle eastern cuisine")
+
+        assert constraints.cuisine == "middle-eastern"
+
+    def test_extract_cuisine_greek(self, extractor):
+        """Test extracting greek cuisine."""
+        constraints = extractor.extract_constraints("something greek")
+
+        assert constraints.cuisine == "greek"
+
+    def test_extract_goal_savory(self, extractor):
+        """Test extracting savory goal (from DB)."""
+        constraints = extractor.extract_constraints("something savory")
+
+        assert "savory" in constraints.goals
+
+    def test_extract_goal_sweet(self, extractor):
+        """Test extracting sweet goal."""
+        constraints = extractor.extract_constraints("I want something sweet")
+
+        assert "sweet" in constraints.goals
+
+    def test_extract_goal_fallback_light(self, extractor):
+        """Test that 'light' falls back to 'low-calorie'."""
+        constraints = extractor.extract_constraints("something light")
+
+        assert "low-calorie" in constraints.goals
+
+    def test_extract_goal_fallback_cheap(self, extractor):
+        """Test that 'cheap' falls back to 'inexpensive'."""
+        constraints = extractor.extract_constraints("something cheap")
+
+        assert "inexpensive" in constraints.goals
+
+    def test_extract_goal_fallback_hearty(self, extractor):
+        """Test that 'hearty' falls back to 'comfort-food'."""
+        constraints = extractor.extract_constraints("something hearty")
+
+        assert "comfort-food" in constraints.goals
+
+    def test_extract_combined_asian_savory(self, extractor):
+        """Test extracting both asian cuisine and savory goal together."""
+        constraints = extractor.extract_constraints("savory, asian")
+
+        assert constraints.cuisine == "asian"
+        assert "savory" in constraints.goals
+
 
 class TestShouldClarify:
     """Tests for should_clarify gate function."""

@@ -6,7 +6,7 @@ from langchain_core.runnables import Runnable
 
 from src.app.logging_config import get_logger
 from src.app.settings import Settings
-from src.domain.models import Constraints, RecipeCard
+from src.domain.models import Constraints, PreferenceProfile, RecipeCard
 from src.retrieval.recipe_cards import RecipeCardBuilder
 from src.retrieval.rerank import RecipeReranker
 from src.retrieval.retriever import RecipeRetriever
@@ -45,7 +45,8 @@ class RetrievalRunnable(Runnable):
         """Execute retrieval pipeline.
 
         Args:
-            input_data: Dictionary with "user_input", "constraints", "rolling_summary", and optional "exclude_recipe_ids" keys
+            input_data: Dictionary with "user_input", "constraints", "rolling_summary",
+                        "profile", and optional "exclude_recipe_ids" keys
             config: Optional LangChain config
 
         Returns:
@@ -55,9 +56,10 @@ class RetrievalRunnable(Runnable):
         constraints: Constraints = input_data.get("constraints", Constraints())
         exclude_ids: set[str] = input_data.get("exclude_recipe_ids", set())
         rolling_summary = input_data.get("rolling_summary", "")
+        profile: PreferenceProfile | None = input_data.get("profile")
 
-        # Build query from user input, constraints, and conversation context
-        query = self._build_query(user_input, constraints, rolling_summary)
+        # Build query from user input, constraints, conversation context, and profile
+        query = self._build_query(user_input, constraints, rolling_summary, profile)
 
         logger.info("Starting retrieval pipeline", query=query, k_retrieve=self.settings.k_retrieve)
 
@@ -87,13 +89,20 @@ class RetrievalRunnable(Runnable):
 
         return {**input_data, "cards": cards, "cards_text": cards_text}
 
-    def _build_query(self, user_input: str, constraints: Constraints, rolling_summary: str = "") -> str:
-        """Build search query from input, constraints, and conversation context.
+    def _build_query(
+        self,
+        user_input: str,
+        constraints: Constraints,
+        rolling_summary: str = "",
+        profile: PreferenceProfile | None = None,
+    ) -> str:
+        """Build search query from input, constraints, conversation context, and profile.
 
         Args:
             user_input: Original user input
             constraints: Extracted constraints
             rolling_summary: Conversation context from previous turns
+            profile: Optional user profile for preference boosting
 
         Returns:
             Enhanced query string
@@ -115,13 +124,20 @@ class RetrievalRunnable(Runnable):
         if constraints.dish_name:
             query_parts.append(constraints.dish_name)
 
-        # Add cuisine to query
+        # Add cuisine to query (from constraints OR profile preference)
         if constraints.cuisine:
             query_parts.append(constraints.cuisine)
+        elif profile and profile.preferred_cuisines:
+            # Use profile preference when no explicit cuisine mentioned
+            preferred = profile.preferred_cuisines[0]
+            query_parts.append(preferred)
+            logger.debug("Added profile cuisine preference to query", cuisine=preferred)
 
-        # Add dietary restrictions
+        # Add dietary restrictions (from constraints OR profile)
         if constraints.dietary:
             query_parts.append(constraints.dietary)
+        elif profile and profile.diet and profile.diet != "none":
+            query_parts.append(profile.diet)
 
         # Add goals
         if constraints.goals:

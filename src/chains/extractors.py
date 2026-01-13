@@ -7,12 +7,31 @@ from langchain_core.runnables import RunnableLambda
 
 from src.app.logging_config import get_logger
 from src.domain.models import Constraints
+from src.utils.tag_loader import (
+    GOAL_FALLBACKS,
+    load_cuisines_from_db,
+    load_goals_from_db,
+)
 
 logger = get_logger(__name__)
 
 
 class ConstraintExtractor:
     """Extract constraints from user input using rule-based patterns."""
+
+    def __init__(self, db_path: str | None = None):
+        """Initialize extractor with cuisines and goals from database.
+
+        Args:
+            db_path: Path to SQLite database. If None, uses default from Settings.
+        """
+        self._valid_cuisines = load_cuisines_from_db(db_path)
+        self._valid_goals = load_goals_from_db(db_path)
+        logger.debug(
+            "ConstraintExtractor initialized",
+            cuisine_count=len(self._valid_cuisines),
+            goal_count=len(self._valid_goals),
+        )
 
     # Common ingredients pattern
     INGREDIENT_PATTERNS = [
@@ -192,22 +211,34 @@ class ConstraintExtractor:
     def _extract_cuisine_and_dish(self, text: str) -> tuple[str | None, str | None]:
         """Extract cuisine preference and specific dish name.
 
+        Uses cuisines loaded from database for dynamic matching.
+
         Returns:
             Tuple of (cuisine, dish_name)
         """
         cuisine = None
         dish_name = None
+        text_lower = text.lower()
 
-        # First check explicit cuisine patterns
-        for cuisine_name, pattern in self.CUISINE_PATTERNS.items():
-            if re.search(pattern, text, re.IGNORECASE):
+        # First check for cuisines from database (dynamic)
+        for cuisine_name in self._valid_cuisines:
+            # Create pattern that handles hyphenated cuisines (e.g., "middle-eastern")
+            pattern = rf"\b{cuisine_name.replace('-', '[-\\s]?')}\b"
+            if re.search(pattern, text_lower, re.IGNORECASE):
                 cuisine = cuisine_name
                 break
+
+        # Fallback: check legacy hardcoded patterns for any we might have missed
+        if not cuisine:
+            for cuisine_name, pattern in self.CUISINE_PATTERNS.items():
+                if re.search(pattern, text_lower, re.IGNORECASE):
+                    cuisine = cuisine_name
+                    break
 
         # Then check for dish names that imply cuisine
         for cuisine_name, dishes in self.DISH_TO_CUISINE.items():
             for dish in dishes:
-                if dish in text:
+                if dish in text_lower:
                     # Found a dish name - extract cuisine if not already set
                     if not cuisine:
                         cuisine = cuisine_name
@@ -218,12 +249,28 @@ class ConstraintExtractor:
         return cuisine, dish_name
 
     def _extract_goals(self, text: str) -> list[str]:
-        """Extract user goals/preferences."""
+        """Extract user goals/preferences using DB tags + fallback mappings."""
         goals = []
+        text_lower = text.lower()
 
+        # Check for valid goal tags from database
+        for goal in self._valid_goals:
+            # Handle hyphenated goals (e.g., "comfort-food", "low-calorie")
+            pattern = rf"\b{goal.replace('-', '[-\\s]?')}\b"
+            if re.search(pattern, text_lower):
+                goals.append(goal)
+
+        # Check fallback terms (light → low-calorie, cheap → inexpensive, etc.)
+        for term, mapped_goal in GOAL_FALLBACKS.items():
+            if re.search(rf"\b{term}\b", text_lower):
+                if mapped_goal not in goals:
+                    goals.append(mapped_goal)
+
+        # Fallback: check legacy hardcoded patterns
         for goal_name, pattern in self.GOAL_PATTERNS.items():
-            if re.search(pattern, text, re.IGNORECASE):
-                goals.append(goal_name)
+            if re.search(pattern, text_lower, re.IGNORECASE):
+                if goal_name not in goals:
+                    goals.append(goal_name)
 
         return goals
 

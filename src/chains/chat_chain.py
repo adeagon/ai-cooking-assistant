@@ -91,12 +91,13 @@ def build_chat_chain(
 
     # Build recommendation chain (with retrieval)
     recommendation_chain = (
-        # First, add exclude_ids and rolling_summary to input for retrieval context
+        # First, add exclude_ids, rolling_summary, and profile to input for retrieval context
         RunnablePassthrough.assign(
             exclude_recipe_ids=lambda _: exclude_ids,
             rolling_summary=lambda _: rolling_summary,
+            profile=lambda _: profile,
         )
-        # Then, retrieve recipes (with exclusion filtering and context)
+        # Then, retrieve recipes (with exclusion filtering, context, and profile preferences)
         | retrieval_chain
         # Then, build prompt with cards
         | RunnablePassthrough.assign(
