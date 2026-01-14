@@ -52,6 +52,12 @@ Local Recipe Assistant: A fully-local, interactive dinner-planning assistant usi
   - **Profile preferences**: User's preferred cuisines boost retrieval relevance
   - **Taste classification**: LLM-based scripts for light/hearty/mild/rich tags
   - All 267 tests passing (12 new tests for enhanced extraction)
+- ✅ **Comprehensive Recipe Classification**: Hybrid approach for metadata enrichment
+  - **Ingredient-based rules**: Deterministic vegetarian/vegan tagging (broth OK for vegetarian)
+  - **LLM classification**: Taste (sweet/savory/spicy/mild/rich/light), occasion, cuisine
+  - **30+ cuisines**: american, italian, mexican, chinese, indian, thai, greek, french, etc.
+  - **Smart skip logic**: Only classifies recipes missing tags (reduces LLM calls ~60%)
+  - **Quality controls**: Category limits in prompts, mutual exclusion rules, HIGH+MEDIUM confidence
 
 ## Development Workflow
 
@@ -118,9 +124,18 @@ pytest tests/test_retrieval*.py -v
 # Run with verbose output
 pytest -v
 
-# Taste classification (optional, enhances search for taste preferences)
-python scripts/classify_taste_tags_parallel.py  # 8-worker parallel (~4 recipes/sec)
+# Recipe classification (optional, enhances search for taste/occasion/cuisine)
+# Step 1: Apply deterministic ingredient rules for vegetarian/vegan (~2 min)
+python scripts/apply_ingredient_rules.py
+python scripts/apply_ingredient_rules.py --test  # Test on 50 samples first
+
+# Step 2: Run LLM classification for taste, occasion, cuisine (~4-5 hours)
+python scripts/classify_comprehensive_tags.py --workers 4
+python scripts/classify_comprehensive_tags.py --test 100  # Test on samples first
+
+# Validation scripts
 python scripts/spot_check_classifications.py    # Validate classification accuracy
+python scripts/benchmark_accuracy.py            # Test classification accuracy
 ```
 
 ## Architecture

@@ -226,22 +226,41 @@ pytest --cov=src
 
 See `PHASE_4_TEST_RESULTS.md` for Phase 4 test results and `PHASE_5_SUMMARY.md` for Phase 5 implementation details.
 
-### Taste Classification (Optional Enhancement)
+### Recipe Classification (Optional Enhancement)
 
-Classify recipes with taste tags (light, hearty, mild, rich) using LLM:
+Enhance recipe metadata with dietary tags, taste profiles, occasion tags, and cuisine classification:
 
 ```bash
-# Run parallel classification (8 workers, ~4 recipes/sec)
-python scripts/classify_taste_tags_parallel.py
+# Step 1: Apply ingredient-based rules for vegetarian/vegan tags (~2 min)
+# This is deterministic and fast - no LLM required
+python scripts/apply_ingredient_rules.py
+
+# Test on 50 samples first
+python scripts/apply_ingredient_rules.py --test
+
+# Step 2: Run LLM classification for taste, occasion, and cuisine tags
+# Only processes recipes missing these tags (~4-5 hours for full dataset)
+python scripts/classify_comprehensive_tags.py --workers 4
+
+# Test on samples first (recommended)
+python scripts/classify_comprehensive_tags.py --test 100
 
 # Check progress
-cat data/classification_progress.json | python -c "import sys,json; print(len(json.load(sys.stdin)))"
-
-# Run spot-check validation after classification
-python scripts/spot_check_classifications.py
+cat data/comprehensive_classification_progress.json | python -c "import sys,json; print(len(json.load(sys.stdin)))"
 ```
 
-This is optional but improves search results when users ask for "something light" or "hearty meals".
+**Classification Categories:**
+- **Dietary** (ingredient rules): vegetarian, vegan (broth is OK for vegetarian)
+- **Taste** (LLM): sweet, savory, spicy, mild, rich, light
+- **Occasion** (LLM): weeknight, comfort-food, kid-friendly, dinner-party, holiday-event, inexpensive, etc.
+- **Cuisine** (LLM): american, italian, mexican, chinese, indian, thai, greek, french, etc. (30+ cuisines)
+
+**Hybrid Approach:**
+1. Trust existing Food.com tags (42% have cuisine, 17% have vegetarian, etc.)
+2. Use ingredient rules for vegetarian/vegan (deterministic, fast)
+3. Use LLM only for taste/occasion/cuisine gaps (reduces LLM calls by ~60%)
+
+This is optional but improves search results when users ask for "something light", "Italian food", or "quick weeknight meals".
 
 ### Available Commands
 
@@ -285,9 +304,13 @@ ai-cooking-assistant/
 │   ├── memory/       # User preferences (Phase 5+)
 │   ├── chains/       # LangChain LCEL (Phase 4+)
 │   └── utils/        # Shared utilities (tag_loader, etc.)
-├── scripts/          # One-time scripts
-│   ├── classify_taste_tags_parallel.py  # LLM taste classification
-│   └── spot_check_classifications.py    # Validation script
+├── scripts/          # Classification and utility scripts
+│   ├── apply_ingredient_rules.py        # Deterministic vegetarian/vegan tagging
+│   ├── classify_comprehensive_tags.py   # LLM taste/occasion/cuisine classification
+│   ├── classify_taste_tags_parallel.py  # Legacy taste classification (deprecated)
+│   ├── spot_check_classifications.py    # Validation script
+│   ├── benchmark_accuracy.py            # Classification accuracy testing
+│   └── benchmark_comprehensive.py       # Model comparison benchmarks
 ├── tests/            # Unit and integration tests
 ├── data/             # Data directory (not in git)
 │   ├── raw/          # Downloaded datasets
