@@ -20,8 +20,12 @@ class Settings(BaseSettings):
         description="Ollama API base URL"
     )
     ollama_model: str = Field(
-        default="qwen2.5:14b",
+        default="qwen3:14b",
         description="Ollama model name"
+    )
+    ollama_disable_thinking: bool = Field(
+        default=True,
+        description="Disable Qwen3 thinking mode for faster responses"
     )
 
     # Embedding and reranking models

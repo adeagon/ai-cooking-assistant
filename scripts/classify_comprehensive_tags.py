@@ -1,6 +1,7 @@
 """LLM-based recipe classification for TASTE and OCCASION tags.
 
-This script uses Ollama/Qwen to classify recipes with taste and occasion tags.
+This script uses Ollama with Qwen3 to classify recipes with taste and occasion tags.
+Uses the chat API with thinking disabled for fast inference (~0.4 recipes/sec).
 Dietary tags (vegetarian, vegan) are handled by apply_ingredient_rules.py instead.
 
 TASTE PROFILE (pick 1-2):
@@ -48,8 +49,10 @@ from pathlib import Path
 
 import httpx
 
-OLLAMA_URL = "http://localhost:11434/api/generate"
-MODEL = "qwen2.5:14b"
+OLLAMA_CHAT_URL = "http://localhost:11434/api/chat"
+MODEL = "qwen3:14b"
+# Disable thinking mode for faster inference (Qwen3 generates ~900 hidden tokens otherwise)
+DISABLE_THINKING = True
 
 # Tags we classify with LLM (taste + occasion)
 # Dietary tags are handled by apply_ingredient_rules.py
@@ -143,13 +146,21 @@ async def classify_cuisine(client, recipe_id, title, ingredients):
             title=title,
             ingredients=", ".join(ingredients[:12]),
         )
+        payload = {
+            "model": MODEL,
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": False,
+        }
+        if DISABLE_THINKING:
+            payload["think"] = False
+
         response = await client.post(
-            OLLAMA_URL,
-            json={"model": MODEL, "prompt": prompt, "stream": False},
+            OLLAMA_CHAT_URL,
+            json=payload,
             timeout=60.0,
         )
         response.raise_for_status()
-        result = response.json()["response"].strip()
+        result = response.json()["message"]["content"].strip()
 
         cuisine = None
         confidence = "low"
@@ -208,13 +219,21 @@ async def classify_one(client, recipe_id, title, ingredients):
             title=title,
             ingredients=", ".join(ingredients[:15]),
         )
+        payload = {
+            "model": MODEL,
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": False,
+        }
+        if DISABLE_THINKING:
+            payload["think"] = False
+
         response = await client.post(
-            OLLAMA_URL,
-            json={"model": MODEL, "prompt": prompt, "stream": False},
+            OLLAMA_CHAT_URL,
+            json=payload,
             timeout=60.0,
         )
         response.raise_for_status()
-        result = response.json()["response"].strip()
+        result = response.json()["message"]["content"].strip()
 
         # Parse structured response
         new_tags = []
@@ -535,7 +554,17 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="LLM recipe classification for taste/occasion")
     parser.add_argument("--workers", type=int, default=4, help="Number of parallel workers")
     parser.add_argument("--test", type=int, nargs="?", const=10, help="Test on N samples (default 10)")
+    parser.add_argument("--model", type=str, default=None, help=f"Ollama model to use (default: {MODEL})")
+    parser.add_argument("--think", action="store_true", help="Enable thinking mode (slower but may improve quality)")
     args = parser.parse_args()
+
+    # Override globals based on args
+    if args.model:
+        MODEL = args.model
+    if args.think:
+        DISABLE_THINKING = False
+
+    print(f"Using model: {MODEL}, thinking: {'enabled' if not DISABLE_THINKING else 'disabled'}")
 
     if args.test:
         asyncio.run(test_on_samples(num_samples=args.test))

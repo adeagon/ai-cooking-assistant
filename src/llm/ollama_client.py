@@ -14,8 +14,9 @@ class OllamaLLMClient(LLMClient):
     def __init__(
         self,
         base_url: str = "http://localhost:11434",
-        model: str = "llama3.3:70b",
-        timeout: float = 300.0
+        model: str = "qwen3:14b",
+        timeout: float = 300.0,
+        disable_thinking: bool = True
     ):
         """Initialize Ollama client.
 
@@ -23,16 +24,19 @@ class OllamaLLMClient(LLMClient):
             base_url: Ollama API base URL
             model: Model name to use
             timeout: Request timeout in seconds
+            disable_thinking: Disable Qwen3 thinking mode for faster responses
         """
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.timeout = timeout
+        self.disable_thinking = disable_thinking
         self.client = httpx.AsyncClient(timeout=timeout)
 
         logger.info(
             "Initialized Ollama client",
             base_url=base_url,
-            model=model
+            model=model,
+            disable_thinking=disable_thinking
         )
 
     async def chat(
@@ -60,6 +64,10 @@ class OllamaLLMClient(LLMClient):
             "stream": False,
             **kwargs
         }
+
+        # Disable thinking mode for Qwen3 models if configured
+        if self.disable_thinking and "think" not in kwargs:
+            payload["think"] = False
 
         logger.debug(
             "Sending chat request to Ollama",
