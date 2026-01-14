@@ -453,6 +453,9 @@ async def async_chat_session():
         console.print("[dim]Initializing LLM and retrieval components...[/dim]")
 
         # Initialize LLM
+        # Note: For Qwen3 models, thinking mode is enabled by default in chat.
+        # This adds ~2-3 seconds per response but produces quality reasoning.
+        # For batch classification (scripts/), direct API calls use think=false for speed.
         llm = ChatOllama(
             base_url=settings.ollama_base_url,
             model=settings.ollama_model,
