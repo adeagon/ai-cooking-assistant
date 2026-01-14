@@ -56,8 +56,17 @@ Local Recipe Assistant: A fully-local, interactive dinner-planning assistant usi
   - **Ingredient-based rules**: Deterministic vegetarian/vegan tagging (broth OK for vegetarian)
   - **LLM classification**: Taste (sweet/savory/spicy/mild/rich/light), occasion, cuisine
   - **30+ cuisines**: american, italian, mexican, chinese, indian, thai, greek, french, etc.
-  - **Smart skip logic**: Only classifies recipes missing tags (reduces LLM calls ~60%)
+  - **Smart skip logic**: Only classifies recipes missing tags
   - **Quality controls**: Category limits in prompts, mutual exclusion rules, HIGH+MEDIUM confidence
+
+## Pending Tasks
+
+- [ ] **Run LLM classification** (~20 hours estimated)
+  - Ingredient rules already applied (54K vegetarian, 15K vegan tags added)
+  - LLM classification pending for taste/occasion/cuisine tags
+  - Command: `python scripts/classify_comprehensive_tags.py --workers 4`
+  - Plan: Run over a weekend when machine can be left running
+  - Note: Original Food.com data lacks mild/rich/light tags entirely, so ~80K recipes need classification
 
 ## Development Workflow
 
