@@ -35,8 +35,11 @@ SEAFOOD_KEYWORDS = {
     "swordfish", "mackerel", "haddock", "catfish"
 }
 
-# These are OK for vegetarian (but check the whole ingredient)
-BROTH_OK = {"broth", "stock", "bouillon", "base"}
+# These indicate a broth/stock ingredient
+BROTH_KEYWORDS = {"broth", "stock", "bouillon", "base"}
+
+# Animal-based broths - these are NOT vegetarian
+ANIMAL_BROTH_KEYWORDS = {"chicken", "beef", "pork", "turkey", "ham", "bone", "fish", "seafood", "lamb", "veal"}
 
 # Dairy and eggs - disqualifies vegan (but not vegetarian)
 DAIRY_EGG_KEYWORDS = {
@@ -48,13 +51,25 @@ DAIRY_EGG_KEYWORDS = {
 }
 
 
+def is_plant_based_broth(ingredient: str) -> bool:
+    """Check if a broth/stock ingredient is plant-based (vegetable, mushroom, etc.)."""
+    ing_lower = ingredient.lower()
+
+    # Must contain broth/stock keyword to be considered a broth
+    if not any(broth in ing_lower for broth in BROTH_KEYWORDS):
+        return False
+
+    # Check if it's animal-based - if so, NOT plant-based
+    return not any(animal in ing_lower for animal in ANIMAL_BROTH_KEYWORDS)
+
+
 def has_actual_meat(ingredients: list[str]) -> bool:
-    """Check for actual meat (broth/stock is OK for vegetarian)."""
+    """Check for actual meat (only plant-based broth/stock is OK for vegetarian)."""
     for ing in ingredients:
         ing_lower = ing.lower()
 
-        # Skip if it's just broth/stock/bouillon
-        if any(broth in ing_lower for broth in BROTH_OK):
+        # If it's a plant-based broth (vegetable, mushroom, etc.), skip it
+        if is_plant_based_broth(ing):
             continue
 
         # Check for meat keywords
@@ -232,10 +247,43 @@ def process_all_recipes(cursor, conn, dry_run: bool = False):
         print("\n(Dry run - no changes made)")
 
 
+def clear_dietary_tags(cursor, conn):
+    """Remove existing vegetarian/vegan tags added by this script."""
+    print(f"\n{'='*60}")
+    print("CLEARING EXISTING VEGETARIAN/VEGAN TAGS")
+    print(f"{'='*60}\n")
+
+    # Get all recipes with vegetarian or vegan tags
+    cursor.execute("""
+        SELECT recipe_id, tags
+        FROM recipes
+        WHERE tags LIKE '%"vegetarian"%' OR tags LIKE '%"vegan"%'
+    """)
+
+    batch_updates = []
+    for recipe_id, tags_json in cursor:
+        tags = json.loads(tags_json) if tags_json else []
+        # Remove vegetarian and vegan tags
+        new_tags = [t for t in tags if t.lower() not in ("vegetarian", "vegan")]
+        if len(new_tags) != len(tags):
+            batch_updates.append((json.dumps(new_tags), recipe_id))
+
+    print(f"Found {len(batch_updates)} recipes with vegetarian/vegan tags to clear")
+
+    if batch_updates:
+        cursor.executemany(
+            "UPDATE recipes SET tags = ? WHERE recipe_id = ?",
+            batch_updates
+        )
+        conn.commit()
+        print("Tags cleared successfully!")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Apply ingredient-based dietary rules")
     parser.add_argument("--test", action="store_true", help="Test on 50 samples only")
     parser.add_argument("--dry-run", action="store_true", help="Don't actually update database")
+    parser.add_argument("--reset", action="store_true", help="Clear existing vegetarian/vegan tags before re-applying")
     args = parser.parse_args()
 
     db_path = Path("data/sqlite/recipes.db")
@@ -251,6 +299,8 @@ def main():
         if args.test:
             test_on_samples(cursor)
         else:
+            if args.reset:
+                clear_dietary_tags(cursor, conn)
             process_all_recipes(cursor, conn, dry_run=args.dry_run)
     finally:
         conn.close()

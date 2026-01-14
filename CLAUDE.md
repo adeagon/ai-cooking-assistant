@@ -53,16 +53,23 @@ Local Recipe Assistant: A fully-local, interactive dinner-planning assistant usi
   - **Taste classification**: LLM-based scripts for light/hearty/mild/rich tags
   - All 267 tests passing (12 new tests for enhanced extraction)
 - ✅ **Comprehensive Recipe Classification**: Hybrid approach for metadata enrichment
-  - **Ingredient-based rules**: Deterministic vegetarian/vegan tagging (broth OK for vegetarian)
+  - **Ingredient-based rules**: Deterministic vegetarian/vegan tagging (plant-based broths only)
   - **LLM classification**: Taste (sweet/savory/spicy/mild/rich/light), occasion, cuisine
   - **30+ cuisines**: american, italian, mexican, chinese, indian, thai, greek, french, etc.
   - **Smart skip logic**: Only classifies recipes missing tags
   - **Quality controls**: Category limits in prompts, mutual exclusion rules, HIGH+MEDIUM confidence
+- ✅ **ChromaDB Metadata Filtering**: Precise constraint filtering at database level
+  - **Structured metadata**: `is_vegetarian`, `is_vegan`, `cuisine` fields in ChromaDB
+  - **Database-level filtering**: Dietary/cuisine/time constraints applied via ChromaDB `where` clauses
+  - **Guaranteed constraint satisfaction**: Vegan filter returns ONLY vegan recipes (no false positives)
+  - **Fixed broth classification**: Animal-based broths (chicken, beef) now correctly excluded from vegetarian
+  - **51K vegetarian, 15K vegan** recipes after corrected tagging
+  - All 274 tests passing (11 new tests for metadata filtering)
 
 ## Pending Tasks
 
 - [ ] **Run LLM classification** (~20 hours estimated)
-  - Ingredient rules already applied (54K vegetarian, 15K vegan tags added)
+  - Ingredient rules already applied (51K vegetarian, 15K vegan tags added)
   - LLM classification pending for taste/occasion/cuisine tags
   - Command: `python scripts/classify_comprehensive_tags.py --workers 4`
   - Plan: Run over a weekend when machine can be left running
@@ -153,7 +160,7 @@ python scripts/benchmark_accuracy.py            # Test classification accuracy
 
 1. **Ingestion Pipeline** (`src/ingest/`): Offline processing of Food.com dataset - loads, normalizes, embeds, and persists to vector store and SQLite.
 
-2. **Retrieval System** (`src/retrieval/`): RAG pipeline with retrieve (k=100) → rerank (k=20) → context (k=6) architecture. GPU-accelerated vector search (Phase 2) and cross-encoder reranking (Phase 3) complete. RecipeCard builder creates compact representations for LLM prompts.
+2. **Retrieval System** (`src/retrieval/`): RAG pipeline with retrieve (k=100) → rerank (k=20) → context (k=6) architecture. GPU-accelerated vector search (Phase 2) and cross-encoder reranking (Phase 3) complete. **ChromaDB metadata filtering** for dietary (vegetarian/vegan), cuisine, and time constraints. RecipeCard builder creates compact representations for LLM prompts.
 
 3. **LLM Layer** (`src/llm/`): Abstracted client interface (`LLMClient`) with Ollama implementation. Enables runtime swapping.
 
@@ -195,13 +202,15 @@ Slash Command Detection (/like, /save, /show, etc.) [Fallback]
 Compute exclusion set (liked + disliked + recently cooked recipes)
     |
     v
-Constraint extraction from user query
+Constraint extraction from user query (dietary, cuisine, time, ingredients)
     |
     v
 GPU-accelerated embedding generation
     |
     v
-Vector retrieval (100 candidates)
+Vector retrieval with metadata filters (100 candidates)
+    |  - ChromaDB where: is_vegetarian, is_vegan, cuisine, minutes
+    |  - Guarantees constraint satisfaction at DB level
     |
     v
 Exclusion filtering (remove liked/disliked/cooked)

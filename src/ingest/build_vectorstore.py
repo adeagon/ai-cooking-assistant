@@ -10,6 +10,33 @@ from src.app.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+# Priority order for cuisine extraction (first match wins)
+CUISINE_PRIORITY = [
+    "italian", "mexican", "chinese", "indian", "thai", "japanese",
+    "french", "greek", "mediterranean", "korean", "vietnamese",
+    "american", "southern-united-states", "asian", "european",
+    "middle-eastern", "spanish", "german", "british", "irish",
+    "cajun", "creole", "caribbean", "african", "brazilian",
+]
+
+
+def _extract_primary_cuisine(tags: list[str]) -> str:
+    """Extract primary cuisine from recipe tags.
+
+    Args:
+        tags: List of recipe tags (lowercase)
+
+    Returns:
+        Primary cuisine string, or empty string if none found
+    """
+    for cuisine in CUISINE_PRIORITY:
+        if cuisine in tags:
+            return cuisine
+    # Check for regional variants
+    if "north-american" in tags:
+        return "american"
+    return ""  # Empty string for ChromaDB (doesn't support None in filters)
+
 
 def get_or_create_collection(client: chromadb.Client, collection_name: str = "recipes"):
     """
@@ -89,9 +116,15 @@ def build_vectorstore(
             documents.append(build_embedding_text(recipe))
 
             # Store metadata for filtering
+            tags_lower = [t.lower() for t in recipe.tags] if recipe.tags else []
+
             metadata = {
                 "title": recipe.title,
                 "tags": ", ".join(recipe.tags) if recipe.tags else "",
+                # Structured filterable fields
+                "is_vegetarian": "vegetarian" in tags_lower,
+                "is_vegan": "vegan" in tags_lower,
+                "cuisine": _extract_primary_cuisine(tags_lower),
             }
             # Add numeric fields only if they exist
             if recipe.rating_avg is not None:

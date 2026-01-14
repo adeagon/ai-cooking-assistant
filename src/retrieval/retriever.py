@@ -147,3 +147,49 @@ class RecipeRetriever:
             ]}
 
         return self.search(query, k, filters if filters else None)
+
+    def search_with_constraints(
+        self,
+        query: str,
+        k: int = 30,
+        max_minutes: int | None = None,
+        dietary: str | None = None,
+        cuisine: str | None = None,
+    ) -> list[RetrievalResult]:
+        """
+        Search with dietary, cuisine, and time constraint filters.
+
+        Args:
+            query: Natural language search query
+            k: Number of results to return
+            max_minutes: Maximum cooking time in minutes
+            dietary: Dietary restriction ("vegetarian" or "vegan")
+            cuisine: Cuisine type (e.g., "italian", "mexican")
+
+        Returns:
+            List of RetrievalResult objects sorted by similarity score
+        """
+        conditions = []
+
+        # Time filter
+        if max_minutes is not None:
+            conditions.append({"minutes": {"$lte": max_minutes}})
+
+        # Dietary filters (only vegetarian and vegan are indexed)
+        if dietary == "vegetarian":
+            conditions.append({"is_vegetarian": {"$eq": True}})
+        elif dietary == "vegan":
+            conditions.append({"is_vegan": {"$eq": True}})
+
+        # Cuisine filter
+        if cuisine:
+            conditions.append({"cuisine": {"$eq": cuisine}})
+
+        # Build filter dict
+        filters = None
+        if len(conditions) > 1:
+            filters = {"$and": conditions}
+        elif len(conditions) == 1:
+            filters = conditions[0]
+
+        return self.search(query, k, filters)

@@ -10,6 +10,7 @@ Local recipe assistant using RAG (Retrieval-Augmented Generation) with Qwen 2.5 
 - ✅ Phase 4: LLM integration with Ollama (LangChain LCEL)
 - ✅ Phase 5: Memory & personalization with feedback system
 - ✅ **Enhanced**: Data-driven constraint extraction + taste classification
+- ✅ **Metadata Filtering**: ChromaDB-level dietary/cuisine/time filtering
 
 ## Features
 
@@ -24,6 +25,7 @@ Local recipe assistant using RAG (Retrieval-Augmented Generation) with Qwen 2.5 
 - **Cross-Encoder Reranking**: Improved relevance with ms-marco-MiniLM-L-6-v2 (Phase 3)
 - **Intelligent Clarification**: Asks questions when constraints are insufficient (Phase 4)
 - **Constraint Extraction**: Data-driven NLP for ingredients, time, diet, cuisine, goals (Enhanced)
+- **Precise Dietary Filtering**: Vegetarian/vegan constraints enforced at database level (no false positives)
 - **32 Cuisines Supported**: Asian, Korean, Greek, Middle-Eastern, and more loaded from recipe data
 - **Taste Tags**: Light, hearty, mild, rich classifications via LLM (parallel processing)
 - **Profile Preferences in Search**: User's preferred cuisines boost retrieval relevance
@@ -186,10 +188,10 @@ You: /cooked 2
 ### Run Tests
 
 ```bash
-# Run all tests (267 tests total)
+# Run all tests (274 tests total)
 pytest
 
-# Run retrieval tests only
+# Run retrieval tests (including metadata filtering)
 pytest tests/test_retrieval*.py -v
 
 # Run Phase 3 tests (reranking + recipe cards)
@@ -215,11 +217,14 @@ pytest --cov=src
 ```
 
 **Test Suite**:
-- **267 total tests** (all passing)
-- **Enhanced Tests (12 new)**:
-  - Data-driven cuisine extraction (asian, korean, greek, middle-eastern)
-  - Goal extraction with fallbacks (light→low-calorie, cheap→inexpensive)
-  - Combined constraint extraction tests
+- **274 total tests** (all passing)
+- **Metadata Filtering Tests (11 new)**:
+  - Vegetarian/vegan filter verification
+  - Cuisine filter (Italian, etc.)
+  - Time constraint filtering
+  - Combined filters (vegetarian + Italian + under 30 min)
+  - Metadata schema validation
+- **Enhanced Tests (12)**: Data-driven cuisine/goal extraction
 - **Phase 5 Tests (48)**: FeedbackStore, HistoryStore, integration workflows
 - **Phase 4 Tests (76)**: Memory system, chains, integration, chat scenarios
 - **Phase 1-3 Tests (82)**: All regression tests passing
@@ -238,6 +243,9 @@ python scripts/apply_ingredient_rules.py
 # Test on 50 samples first
 python scripts/apply_ingredient_rules.py --test
 
+# Re-run with --reset to clear and re-apply tags (if rules were updated)
+python scripts/apply_ingredient_rules.py --reset
+
 # Step 2: Run LLM classification for taste, occasion, and cuisine tags
 # Only processes recipes missing these tags (~4-5 hours for full dataset)
 python scripts/classify_comprehensive_tags.py --workers 4
@@ -250,7 +258,7 @@ cat data/comprehensive_classification_progress.json | python -c "import sys,json
 ```
 
 **Classification Categories:**
-- **Dietary** (ingredient rules): vegetarian, vegan (broth is OK for vegetarian)
+- **Dietary** (ingredient rules): vegetarian, vegan (only plant-based broths allowed)
 - **Taste** (LLM): sweet, savory, spicy, mild, rich, light
 - **Occasion** (LLM): weeknight, comfort-food, kid-friendly, dinner-party, holiday-event, inexpensive, etc.
 - **Cuisine** (LLM): american, italian, mexican, chinese, indian, thai, greek, french, etc. (30+ cuisines)

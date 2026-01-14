@@ -61,10 +61,23 @@ class RetrievalRunnable(Runnable):
         # Build query from user input, constraints, conversation context, and profile
         query = self._build_query(user_input, constraints, rolling_summary, profile)
 
-        logger.info("Starting retrieval pipeline", query=query, k_retrieve=self.settings.k_retrieve)
+        logger.info(
+            "Starting retrieval pipeline",
+            query=query,
+            k_retrieve=self.settings.k_retrieve,
+            dietary=constraints.dietary,
+            cuisine=constraints.cuisine,
+            time_limit=constraints.time_limit,
+        )
 
-        # Step 1: Vector search
-        results = self.retriever.search(query, k=self.settings.k_retrieve)
+        # Step 1: Vector search with constraint filters
+        results = self.retriever.search_with_constraints(
+            query=query,
+            k=self.settings.k_retrieve,
+            max_minutes=constraints.time_limit,
+            dietary=constraints.dietary,
+            cuisine=constraints.cuisine,
+        )
 
         logger.info(f"Retrieved {len(results)} candidates from vector search")
 
