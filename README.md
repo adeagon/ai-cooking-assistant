@@ -1,6 +1,6 @@
 # AI Cooking Assistant
 
-Local recipe assistant using RAG (Retrieval-Augmented Generation) with Qwen 2.5 14B via Ollama.
+Local recipe assistant using RAG (Retrieval-Augmented Generation) with Qwen 3 14B via Ollama.
 
 ## Current Status: Phase 5+ Enhanced ✅
 
@@ -14,7 +14,7 @@ Local recipe assistant using RAG (Retrieval-Augmented Generation) with Qwen 2.5 
 
 ## Features
 
-- **Conversational Interface**: Natural language chat powered by Qwen 2.5 14B (Phase 4)
+- **Conversational Interface**: Natural language chat powered by Qwen 3 14B (Phase 4)
 - **Smart Recommendations**: Recommends real recipes from Food.com dataset (88K+ indexed)
 - **Recipe Box**: Save and bookmark recipes for later reference
 - **Feedback System**: Like/dislike/rate recipes to improve recommendations (Phase 5)
@@ -35,7 +35,7 @@ Local recipe assistant using RAG (Retrieval-Augmented Generation) with Qwen 2.5 
 
 ## Tech Stack
 
-- **LLM**: Qwen 2.5 14B via Ollama
+- **LLM**: Qwen 3 14B via Ollama (50% faster than Qwen 2.5, with reasoning mode)
 - **Vector Store**: ChromaDB with 88K recipes
 - **Embeddings**: sentence-transformers (all-mpnet-base-v2)
 - **GPU**: PyTorch 2.11 nightly with native RTX 5090 support
@@ -102,7 +102,7 @@ python -m src.app.cli ingest stats
 
 ```bash
 ollama serve
-ollama pull qwen2.5:14b
+ollama pull qwen3:14b
 ```
 
 ## Usage
@@ -139,7 +139,7 @@ python -m src.app.cli chat
 ```
 
 **Features:**
-- Natural language conversation powered by Qwen 2.5 14B
+- Natural language conversation powered by Qwen 3 14B
 - **Natural language commands** - say "I loved that one" instead of `/like 1`
 - Automatic constraint extraction (ingredients, time, diet, cuisine, goals)
 - Intelligent clarification when constraints are vague
