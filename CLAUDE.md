@@ -204,6 +204,9 @@ python scripts/benchmark_accuracy.py            # Test classification accuracy
 python scripts/conversation_test_session.py     # Run 48 comprehensive chat tests
 python scripts/test_clarification_quality.py    # Test clarification responses
 python scripts/compare_clarification_modes.py   # Compare reasoning modes
+
+# Meal planning conversation tests
+python scripts/test_meal_planning_conversation.py  # Test meal planning flow (8 tests)
 ```
 
 ## Architecture

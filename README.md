@@ -294,6 +294,7 @@ pytest --cov=src
   - Integration tests (full flow, audit trail, Recipe Box integration)
 - **Phase 1-3 Tests (82)**: All regression tests passing
 - **Conversation Tests (48)**: Comprehensive chatbot scenarios (run via `scripts/conversation_test_session.py`)
+- **Meal Planning Conversation Tests (8)**: Full flow tests (run via `scripts/test_meal_planning_conversation.py`)
 
 See `PHASE_4_TEST_RESULTS.md` for Phase 4 test results and `PHASE_5_SUMMARY.md` for Phase 5 implementation details.
 
@@ -380,7 +381,8 @@ ai-cooking-assistant/
 │   ├── benchmark_comprehensive.py       # Model comparison benchmarks
 │   ├── conversation_test_session.py     # Comprehensive chatbot tests (48 scenarios)
 │   ├── test_clarification_quality.py    # Clarification response quality tests
-│   └── compare_clarification_modes.py   # Compare reasoning=True vs False
+│   ├── compare_clarification_modes.py   # Compare reasoning=True vs False
+│   └── test_meal_planning_conversation.py  # Meal planning flow tests (8 scenarios)
 ├── tests/            # Unit and integration tests
 ├── data/             # Data directory (not in git)
 │   ├── raw/          # Downloaded datasets
