@@ -216,6 +216,41 @@ class TestConstraintExtractor:
         assert constraints.cuisine == "asian"
         assert "savory" in constraints.goals
 
+    def test_extract_avoid_no_casseroles(self, extractor):
+        """Test extracting avoid constraint with 'no' keyword."""
+        constraints = extractor.extract_constraints("mexican recipes but no casseroles")
+
+        assert "casseroles" in constraints.avoid
+
+    def test_extract_avoid_without_cheese(self, extractor):
+        """Test extracting avoid constraint with 'without' keyword."""
+        constraints = extractor.extract_constraints("pasta without cheese")
+
+        assert "cheese" in constraints.avoid
+
+    def test_extract_avoid_but_not(self, extractor):
+        """Test extracting avoid constraint with 'but not' phrase."""
+        constraints = extractor.extract_constraints("show me some salads but not soups")
+
+        assert "soups" in constraints.avoid
+
+    def test_extract_avoid_multiple(self, extractor):
+        """Test extracting multiple avoid constraints."""
+        constraints = extractor.extract_constraints("no casseroles, avoid soups")
+
+        assert "casseroles" in constraints.avoid
+        assert "soups" in constraints.avoid
+
+    def test_extract_avoid_with_other_constraints(self, extractor):
+        """Test extracting avoid alongside other constraints."""
+        constraints = extractor.extract_constraints(
+            "quick italian dinner, no casseroles"
+        )
+
+        assert constraints.cuisine == "italian"
+        assert constraints.time_limit == 30  # quick
+        assert "casseroles" in constraints.avoid
+
 
 class TestShouldClarify:
     """Tests for should_clarify gate function."""
@@ -377,3 +412,68 @@ class TestPromptFormatters:
         assert "PREVIOUS DISCUSSION:" in formatted
         assert "ingredients: chicken" in formatted
         assert "CURRENT SESSION:" in formatted
+
+
+class TestPromptRules:
+    """Tests for prompt template rules."""
+
+    def test_clarification_prompt_requires_english(self):
+        """Verify clarification prompt requires English-only responses."""
+        from src.chains.prompts import CLARIFICATION_PROMPT
+
+        # Get the system message template
+        system_template = CLARIFICATION_PROMPT.messages[0].prompt.template
+
+        assert "English" in system_template
+
+    def test_recommendation_prompt_requires_english(self):
+        """Verify recommendation prompt requires English-only responses."""
+        from src.chains.prompts import RECOMMENDATION_PROMPT
+
+        # Get the system message template
+        system_template = RECOMMENDATION_PROMPT.messages[0].prompt.template
+
+        assert "English" in system_template
+
+
+class TestEmptyResponseValidation:
+    """Tests for empty response validation."""
+
+    def test_validate_response_with_valid_response(self):
+        """Test that valid responses pass through unchanged."""
+        from src.chains.chat_chain import _validate_response
+
+        result = {"response": "Here are some recipes", "cards": []}
+        validated = _validate_response(result)
+
+        assert validated["response"] == "Here are some recipes"
+        assert validated["cards"] == []
+
+    def test_validate_response_with_empty_string(self):
+        """Test that empty responses get fallback message."""
+        from src.chains.chat_chain import _validate_response, EMPTY_RESPONSE_FALLBACK
+
+        result = {"response": "", "cards": []}
+        validated = _validate_response(result)
+
+        assert validated["response"] == EMPTY_RESPONSE_FALLBACK
+        assert validated["cards"] == []
+
+    def test_validate_response_with_whitespace_only(self):
+        """Test that whitespace-only responses get fallback message."""
+        from src.chains.chat_chain import _validate_response, EMPTY_RESPONSE_FALLBACK
+
+        result = {"response": "   \n\t  ", "cards": []}
+        validated = _validate_response(result)
+
+        assert validated["response"] == EMPTY_RESPONSE_FALLBACK
+
+    def test_validate_response_preserves_cards(self):
+        """Test that cards are preserved even with empty response."""
+        from src.chains.chat_chain import _validate_response
+
+        cards = [{"title": "Test Recipe"}]
+        result = {"response": "", "cards": cards}
+        validated = _validate_response(result)
+
+        assert validated["cards"] == cards

@@ -29,7 +29,10 @@ AVAILABLE ACTIONS:
 - like: Express positive preference for a recipe ("I liked it", "that was great", "thumbs up", "loved the chicken one")
 - dislike: Express negative preference for a recipe ("didn't like it", "not for me", "thumbs down", "that was bad")
 - rate: Give a 1-5 star rating ("give it 4 stars", "rate it a 3", "5 out of 5", "3 stars")
-- show: View full recipe details ("show me the recipe", "what's in the chicken one", "full details", "ingredients list")
+- show: View full recipe details for a SPECIFIC previously-shown recipe ("show me the recipe", "what's in the chicken one", "full details", "ingredients list")
+  IMPORTANT: "show me some X" or "show me options for X" is a RECIPE SEARCH, not show - use 'conversation' instead
+  "show me some pasta recipes" → conversation (recipe search)
+  "show me the pasta recipe" → show (viewing a specific recipe)
 - cooked: Mark recipe as cooked/made ("I made it", "cooked that last night", "tried the first one", "made the pasta")
 - history: View cooking history ("what have I cooked", "show history", "my cooking log", "recently cooked")
 - box: View saved recipes ("show my saved recipes", "what's in my box", "bookmarks", "my recipe box")
@@ -59,10 +62,14 @@ RECIPE REFERENCES:
 - Recipe references are REQUIRED for: like, dislike, rate, show, save, unsave, cooked
 - Recipe references are NOT needed for: history, box, new, prefs, commands
 
-SOURCE FIELD (for show/cooked/like/dislike/rate actions):
-- Set source="box" if user mentions "recipe box", "saved recipes", "from my box", "bookmarked"
-- Set source="recommendations" if referring to recent recommendations (default, can be omitted)
-- This helps resolve recipe references from the correct place
+SOURCE FIELD (where the recipe reference comes FROM):
+- source="box" ONLY if user is referring to a recipe ALREADY IN their recipe box
+  Examples: "show me the pasta from my recipe box", "rate the first one in my saved recipes"
+- source="recommendations" (default) if referring to recent recommendations
+- IMPORTANT: For "save" commands, source is ALWAYS "recommendations" - the recipe box is the DESTINATION, not the source
+  "save it to my recipe box" → source="recommendations" (saving FROM recommendations TO box)
+  "save the pasta" → source="recommendations"
+- Only use source="box" for show/like/dislike/rate/cooked when user explicitly references their saved recipes
 
 CONFIDENCE LEVELS:
 - high: Clear action verb + clear recipe reference (or stateless action like history/box)
@@ -87,6 +94,11 @@ Input: "My saved recipes" -> box, high confidence
 Input: "Show me the green curry from my recipe box" -> show, high confidence, recipe_reference="green curry", source="box"
 Input: "What's in that bookmarked pasta recipe" -> show, high confidence, recipe_reference="pasta", source="box"
 Input: "I made the chicken tikka from my saved recipes" -> cooked, high confidence, recipe_reference="chicken tikka", source="box"
+Input: "Save it to my recipe box" -> save, high confidence, recipe_reference="it", source="recommendations" (NOT box!)
+Input: "Add the first one to my saved recipes" -> save, high confidence, recipe_reference="first one", source="recommendations"
+Input: "Show me some salads" -> conversation (recipe search, not viewing a specific recipe)
+Input: "Show me options for dinner" -> conversation (recipe search)
+Input: "Show me the first one" -> show, high confidence, recipe_reference="first one"
 
 Analyze the user input and output a structured classification."""),
     ("human", "{user_input}")

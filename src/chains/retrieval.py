@@ -55,11 +55,10 @@ class RetrievalRunnable(Runnable):
         user_input = input_data.get("user_input", "")
         constraints: Constraints = input_data.get("constraints", Constraints())
         exclude_ids: set[str] = input_data.get("exclude_recipe_ids", set())
-        rolling_summary = input_data.get("rolling_summary", "")
         profile: PreferenceProfile | None = input_data.get("profile")
 
-        # Build query from user input, constraints, conversation context, and profile
-        query = self._build_query(user_input, constraints, rolling_summary, profile)
+        # Build query from user input, constraints, and profile
+        query = self._build_query(user_input, constraints, profile)
 
         logger.info(
             "Starting retrieval pipeline",
@@ -87,6 +86,15 @@ class RetrievalRunnable(Runnable):
             results = [r for r in results if r.recipe_id not in exclude_ids]
             logger.info(f"Filtered {before_count - len(results)} excluded recipes, {len(results)} remaining")
 
+        # Filter out recipes matching avoid constraints (e.g., "no casseroles")
+        if constraints.avoid:
+            before_count = len(results)
+            results = self._filter_avoid_constraints(results, constraints.avoid)
+            logger.info(
+                f"Filtered {before_count - len(results)} avoided recipes, {len(results)} remaining",
+                avoid=constraints.avoid
+            )
+
         # Step 2: Rerank with cross-encoder
         reranked = self.reranker.rerank(query, results, top_k=self.settings.k_rerank)
 
@@ -106,15 +114,13 @@ class RetrievalRunnable(Runnable):
         self,
         user_input: str,
         constraints: Constraints,
-        rolling_summary: str = "",
         profile: PreferenceProfile | None = None,
     ) -> str:
-        """Build search query from input, constraints, conversation context, and profile.
+        """Build search query from input, constraints, and profile.
 
         Args:
             user_input: Original user input
             constraints: Extracted constraints
-            rolling_summary: Conversation context from previous turns
             profile: Optional user profile for preference boosting
 
         Returns:
@@ -122,12 +128,10 @@ class RetrievalRunnable(Runnable):
         """
         query_parts = [user_input]
 
-        # Add conversation context (e.g., "cuisine: indian" from previous turns)
-        # This helps maintain context when user says things like "traditional ingredients"
-        if rolling_summary:
-            # Extract key terms from rolling summary
-            # Format is like: "ingredients: chicken; cuisine: indian; goals: spicy"
-            query_parts.append(rolling_summary)
+        # NOTE: rolling_summary is intentionally NOT added to the query.
+        # It was causing context pollution where previous session context
+        # (e.g., "cuisine: indian") would influence unrelated searches.
+        # The session context is passed to the LLM via session_context in the prompt.
 
         # Add ingredients to query
         if constraints.ingredients:
@@ -157,6 +161,51 @@ class RetrievalRunnable(Runnable):
             query_parts.extend(constraints.goals)
 
         return " ".join(query_parts)
+
+    def _filter_avoid_constraints(
+        self,
+        results: list,
+        avoid: list[str],
+    ) -> list:
+        """Filter out recipes that match avoid constraints.
+
+        Args:
+            results: List of RetrievalResult objects
+            avoid: List of terms to avoid (e.g., ["casseroles", "soups"])
+
+        Returns:
+            Filtered list of results
+        """
+        if not avoid:
+            return results
+
+        filtered = []
+        for result in results:
+            title_lower = result.title.lower()
+            # Check if any avoid term appears in the title
+            should_avoid = False
+            for term in avoid:
+                term_lower = term.lower()
+                # Check for exact word match or partial match
+                if term_lower in title_lower:
+                    should_avoid = True
+                    break
+                # Also check singular/plural variations
+                if term_lower.endswith("s"):
+                    singular = term_lower[:-1]
+                    if singular in title_lower:
+                        should_avoid = True
+                        break
+                else:
+                    plural = term_lower + "s"
+                    if plural in title_lower:
+                        should_avoid = True
+                        break
+
+            if not should_avoid:
+                filtered.append(result)
+
+        return filtered
 
     def _format_cards(self, cards: list[RecipeCard]) -> str:
         """Format recipe cards for LLM prompt.

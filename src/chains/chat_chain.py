@@ -18,6 +18,30 @@ from src.domain.models import Constraints, PreferenceProfile, SessionState
 
 logger = get_logger(__name__)
 
+EMPTY_RESPONSE_FALLBACK = (
+    "I apologize, but I couldn't generate a response. "
+    "Could you please rephrase your request?"
+)
+
+
+def _validate_response(result: dict[str, Any]) -> dict[str, Any]:
+    """Ensure response is not empty.
+
+    Args:
+        result: Dictionary with "response" and "cards" keys
+
+    Returns:
+        Result with fallback message if response was empty
+    """
+    response = result.get("response", "").strip()
+    if not response:
+        logger.warning("Empty LLM response, using fallback")
+        return {
+            "response": EMPTY_RESPONSE_FALLBACK,
+            "cards": result.get("cards", [])
+        }
+    return result
+
 
 def should_clarify(input_data: dict[str, Any]) -> bool:
     """Determine if we need to ask clarifying questions.
@@ -86,10 +110,16 @@ def build_chat_chain(
     session_context = format_session_context(session, rolling_summary)
     exclude_ids = exclude_recipe_ids or set()
 
-    # Build clarification chain
-    clarification_chain = CLARIFICATION_PROMPT | llm | StrOutputParser()
+    # Build clarification chain - returns dict with response and empty cards
+    clarification_chain = (
+        CLARIFICATION_PROMPT
+        | llm
+        | StrOutputParser()
+        | (lambda response: {"response": response, "cards": []})
+        | _validate_response
+    )
 
-    # Build recommendation chain (with retrieval)
+    # Build recommendation chain (with retrieval) - returns dict with response and cards
     recommendation_chain = (
         # First, add exclude_ids, rolling_summary, and profile to input for retrieval context
         RunnablePassthrough.assign(
@@ -104,10 +134,13 @@ def build_chat_chain(
             preferences_text=lambda _: preferences_text,
             session_context=lambda _: session_context,
         )
-        # Finally, generate recommendation
-        | RECOMMENDATION_PROMPT
-        | llm
-        | StrOutputParser()
+        # Generate recommendation and return both response and cards
+        | RunnablePassthrough.assign(
+            response=RECOMMENDATION_PROMPT | llm | StrOutputParser()
+        )
+        # Keep only response and cards
+        | (lambda x: {"response": x["response"], "cards": x.get("cards", [])})
+        | _validate_response
     )
 
     # Main chain with branching logic
