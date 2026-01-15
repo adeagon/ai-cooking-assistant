@@ -164,6 +164,54 @@ def get_recipe_by_id(db_path: Path, recipe_id: str) -> Recipe | None:
     )
 
 
+def get_all_recipes(db_path: Path, limit: int = 500) -> list[Recipe]:
+    """Retrieve recipes from database for meal planning.
+
+    Args:
+        db_path: Path to SQLite database file
+        limit: Maximum number of recipes to retrieve
+
+    Returns:
+        List of Recipe objects
+    """
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    # Get recipes with good ratings, ordered by rating
+    cursor.execute("""
+        SELECT * FROM recipes
+        WHERE rating_avg IS NOT NULL AND rating_count >= 5
+        ORDER BY rating_avg DESC, rating_count DESC
+        LIMIT ?
+    """, (limit,))
+
+    rows = cursor.fetchall()
+    conn.close()
+
+    recipes = []
+    for row in rows:
+        try:
+            recipes.append(Recipe(
+                recipe_id=row['recipe_id'],
+                title=row['title'],
+                ingredients=json.loads(row['ingredients_raw']),
+                ingredients_normalized=json.loads(row['ingredients_normalized']),
+                instructions=json.loads(row['instructions']),
+                tags=json.loads(row['tags']),
+                rating_avg=row['rating_avg'],
+                rating_count=row['rating_count'],
+                minutes=row['minutes'],
+                n_steps=row['n_steps'],
+                n_ingredients=row['n_ingredients'],
+                source=row['source']
+            ))
+        except (json.JSONDecodeError, KeyError):
+            continue
+
+    return recipes
+
+
 def get_stats(db_path: Path) -> dict:
     """Get database statistics.
 

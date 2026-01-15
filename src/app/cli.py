@@ -529,9 +529,17 @@ async def handle_mealplan_command(
         saved_recipes = recipe_box_store.get_saved_recipes(limit=100)
         box_recipe_ids = {r.recipe_id for r in saved_recipes}
 
+        # Fetch candidate recipes from database
+        from src.ingest.build_db import get_all_recipes
+        all_recipes = get_all_recipes(settings.sqlite_db_path, limit=500)
+
+        if not all_recipes:
+            console.print("[yellow]No recipes found in database. Run 'ingest process' first.[/yellow]")
+            return
+
         # Initialize planner and generate plan
-        planner = MealPlanner(db_path=settings.sqlite_db_path)
-        meals, metrics = planner.generate_plan(constraints, profile, box_recipe_ids=box_recipe_ids)
+        planner = MealPlanner()
+        meals, metrics = planner.generate_plan(all_recipes, constraints, profile, box_recipe_ids=box_recipe_ids)
 
         if not meals:
             console.print("[yellow]No recipes found matching your criteria. Try relaxing some constraints.[/yellow]")
@@ -601,7 +609,7 @@ def display_current_meal_plan(meal_plan_store, settings, console: Console):
     from src.ingest.build_db import get_recipe_by_id
 
     # Get most recent active or draft plan
-    plans = meal_plan_store.get_plans(limit=1)
+    plans = meal_plan_store.get_recent_plans(limit=1)
     if not plans:
         console.print("[yellow]No meal plans found. Use /mealplan to create one.[/yellow]")
         return
@@ -650,7 +658,7 @@ def generate_and_display_grocery_list(meal_plan_store, settings, console: Consol
     from src.ingest.build_db import get_recipe_by_id
 
     # Get most recent plan
-    plans = meal_plan_store.get_plans(limit=1)
+    plans = meal_plan_store.get_recent_plans(limit=1)
     if not plans:
         console.print("[yellow]No meal plans found. Use /mealplan to create one first.[/yellow]")
         return
