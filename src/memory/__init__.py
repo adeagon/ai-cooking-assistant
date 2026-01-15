@@ -5,9 +5,18 @@ from src.memory import _sqlite_compat  # noqa: F401
 
 from src.memory.feedback_store import FeedbackStore
 from src.memory.history_store import HistoryStore
+from src.memory.meal_plan_store import MealPlanStore
 from src.memory.profile_store import ProfileStore
 from src.memory.recipe_box_store import RecipeBoxStore
 from src.memory.session_store import SessionStore
 from src.memory.summarizer import RollingSummarizer
 
-__all__ = ["FeedbackStore", "HistoryStore", "ProfileStore", "RecipeBoxStore", "SessionStore", "RollingSummarizer"]
+__all__ = [
+    "FeedbackStore",
+    "HistoryStore",
+    "MealPlanStore",
+    "ProfileStore",
+    "RecipeBoxStore",
+    "SessionStore",
+    "RollingSummarizer",
+]

@@ -39,6 +39,34 @@ class TestQuickIntentCheck:
         assert check_quick_intent("what commands") == "commands"
         assert check_quick_intent("show commands") == "commands"
 
+    def test_mealplan_match(self):
+        """Test meal planning command variations."""
+        assert check_quick_intent("mealplan") == "mealplan"
+        assert check_quick_intent("meal plan") == "mealplan"
+        assert check_quick_intent("plan meals") == "mealplan"
+        assert check_quick_intent("plan my meals") == "mealplan"
+        assert check_quick_intent("plan dinners") == "mealplan"
+        assert check_quick_intent("plan my week") == "mealplan"
+        assert check_quick_intent("weekly plan") == "mealplan"
+        assert check_quick_intent("meal planning") == "mealplan"
+        assert check_quick_intent("help me plan meals") == "mealplan"
+
+    def test_grocery_list_match(self):
+        """Test grocery list command variations."""
+        assert check_quick_intent("grocery") == "grocery_list"
+        assert check_quick_intent("groceries") == "grocery_list"
+        assert check_quick_intent("grocery list") == "grocery_list"
+        assert check_quick_intent("shopping list") == "grocery_list"
+        assert check_quick_intent("what do i need to buy") == "grocery_list"
+
+    def test_show_plan_match(self):
+        """Test show plan command variations."""
+        assert check_quick_intent("show plan") == "show_plan"
+        assert check_quick_intent("show my plan") == "show_plan"
+        assert check_quick_intent("my meal plan") == "show_plan"
+        assert check_quick_intent("current plan") == "show_plan"
+        assert check_quick_intent("view meal plan") == "show_plan"
+
     def test_no_match(self):
         """Test that non-matching input returns None."""
         assert check_quick_intent("I loved that recipe") is None
@@ -191,6 +219,34 @@ class TestIntentClassification:
         )
         assert result.intent == "commands"
 
+    def test_mealplan_intent(self):
+        """Test meal plan intent."""
+        result = IntentClassification(
+            intent="mealplan",
+            confidence="high",
+            reasoning="User wants to plan meals for the week"
+        )
+        assert result.intent == "mealplan"
+        assert result.recipe_reference is None
+
+    def test_show_plan_intent(self):
+        """Test show plan intent."""
+        result = IntentClassification(
+            intent="show_plan",
+            confidence="high",
+            reasoning="User wants to view their meal plan"
+        )
+        assert result.intent == "show_plan"
+
+    def test_grocery_list_intent(self):
+        """Test grocery list intent."""
+        result = IntentClassification(
+            intent="grocery_list",
+            confidence="high",
+            reasoning="User wants to generate grocery list"
+        )
+        assert result.intent == "grocery_list"
+
 
 # LLM integration tests would go here with @pytest.mark.llm decorator
 # These require Ollama to be running and are more expensive
@@ -314,3 +370,53 @@ class TestIntentClassificationLLM:
         result = classify_intent("what commands can I use", sample_cards, llm)
 
         assert result.intent == "commands"
+
+    def test_mealplan_intent_detected(self, llm, sample_cards):
+        """Test meal planning intent detected via natural language."""
+        from src.chains.intent_classifier import classify_intent
+
+        result = classify_intent("help me plan meals for next week", sample_cards, llm)
+
+        assert result.intent == "mealplan"
+        assert result.confidence in ["high", "medium"]
+
+    def test_mealplan_with_constraints(self, llm, sample_cards):
+        """Test meal planning with constraints is detected."""
+        from src.chains.intent_classifier import classify_intent
+
+        result = classify_intent(
+            "plan 5 vegetarian dinners for the week",
+            sample_cards,
+            llm
+        )
+
+        assert result.intent == "mealplan"
+
+    def test_single_recipe_not_mealplan(self, llm, sample_cards):
+        """Test that single recipe request is not detected as meal planning."""
+        from src.chains.intent_classifier import classify_intent
+
+        result = classify_intent("I need a dinner idea", sample_cards, llm)
+
+        # Should be conversation, not mealplan
+        assert result.intent == "conversation"
+
+    def test_grocery_list_intent_detected(self, llm, sample_cards):
+        """Test grocery list intent detected via natural language."""
+        from src.chains.intent_classifier import classify_intent
+
+        result = classify_intent(
+            "what do I need to buy for my meal plan",
+            sample_cards,
+            llm
+        )
+
+        assert result.intent == "grocery_list"
+
+    def test_show_plan_intent_detected(self, llm, sample_cards):
+        """Test show plan intent detected via natural language."""
+        from src.chains.intent_classifier import classify_intent
+
+        result = classify_intent("what's on my meal plan this week", sample_cards, llm)
+
+        assert result.intent == "show_plan"

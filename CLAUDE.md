@@ -87,7 +87,16 @@ Local Recipe Assistant: A fully-local, interactive dinner-planning assistant usi
   - **Quality improvement**: Thoughtful mode produces more specific recipe suggestions and diverse cuisine options
   - **Reliability fix**: Fast mode prevents empty responses from thinking consuming all tokens
   - **Comprehensive test suite**: 48 conversation tests covering all scenarios (100% pass rate)
-  - All 289 tests passing
+- ✅ **Meal Planning Feature**: Plan meals for the week with ingredient optimization
+  - **Deterministic algorithm**: Beam search (width 5) with stable tie-breaking for reproducible plans
+  - **Ingredient overlap optimization**: Minimizes grocery shopping by sharing ingredients across meals
+  - **Diversity constraints**: Max 2 same protein, max 2 same cuisine for variety
+  - **Recipe Box integration**: Prioritizes saved recipes in plans
+  - **Grocery list generation**: Aggregates ingredients, excludes pantry staples (salt, oil, etc.)
+  - **Natural language entry**: "plan my meals for the week", "help me plan 5 dinners"
+  - **Constraint extraction**: Days, dietary restrictions, time limits, exclusions with audit trail
+  - **Category exclusions**: Exclude dairy, meat, seafood, nuts, gluten categories
+  - All 545 tests passing (15 new meal planning integration tests)
 
 ## Pending Tasks
 
@@ -155,11 +164,19 @@ python -m src.app.cli chat
 # /unsave <ref>   - Remove recipe from Recipe Box (or "unsave it")
 # /box            - List all saved recipes (or "my saved recipes")
 
+# Meal Planning commands (in chat mode):
+# /mealplan       - Start meal planning (or "plan my meals for the week")
+# /plan           - Show current meal plan (or "show my plan")
+# /grocery        - Generate grocery list from meal plan (or "grocery list")
+
 # Run tests
 pytest
 
 # Run Phase 5 integration tests
 pytest tests/test_feedback.py tests/test_history.py tests/test_feedback_integration.py -v
+
+# Run meal planning tests
+pytest tests/test_meal_plan*.py tests/test_ingredient*.py tests/test_grocery*.py -v
 
 # Run LLM integration tests (requires Ollama running)
 pytest tests/test_llm_chat_phase5.py -v -s -m llm
@@ -187,6 +204,9 @@ python scripts/benchmark_accuracy.py            # Test classification accuracy
 python scripts/conversation_test_session.py     # Run 48 comprehensive chat tests
 python scripts/test_clarification_quality.py    # Test clarification responses
 python scripts/compare_clarification_modes.py   # Compare reasoning modes
+
+# Meal planning conversation tests
+python scripts/test_meal_planning_conversation.py  # Test meal planning flow (8 tests)
 ```
 
 ## Architecture
@@ -206,10 +226,18 @@ python scripts/compare_clarification_modes.py   # Compare reasoning modes
    - **FeedbackStore**: Recipe feedback (likes, dislikes, ratings) and cuisine learning (Phase 5)
    - **HistoryStore**: Cooking history with date-based filtering (Phase 5)
    - **RecipeBoxStore**: Saved/bookmarked recipes for later reference (no exclusion from recommendations)
+   - **MealPlanStore**: Meal plan persistence with planned meals and grocery lists
 
-5. **CLI App** (`src/app/`): Typer-based conversational interface.
+5. **Planning System** (`src/planning/`): Deterministic meal planning:
+   - **MealPlanner**: Beam search algorithm with ingredient overlap optimization
+   - **IngredientNormalizer**: Token-based normalization with phrase preservation
+   - **IngredientCategoryClassifier**: Best-effort category classification (dairy, meat, nuts, etc.)
+   - **GroceryListGenerator**: Aggregates ingredients across meal plan
+   - **ConstraintExtractor**: Extracts days, dietary, time, exclusions from natural language
 
-6. **Utilities** (`src/utils/`): Shared utilities for the application:
+6. **CLI App** (`src/app/`): Typer-based conversational interface.
+
+7. **Utilities** (`src/utils/`): Shared utilities for the application:
    - **tag_loader**: Loads valid cuisines and goals from recipe database with LRU caching
    - Provides fallback mappings for user-friendly terms (light→low-calorie, etc.)
 
@@ -299,6 +327,11 @@ Display response + capture recipe cards for commands
 - `CookingHistoryEntry`: Record of cooked recipes with dates and optional notes (Phase 5)
 - `IntentClassification`: LLM-based intent classification result (intent, confidence, recipe_reference, rating_value, reasoning)
 - `SavedRecipe`: Bookmarked recipe in Recipe Box with title, saved date, and notes
+- `MealPlan`: Complete meal plan with start/end dates, status, constraints, metrics
+- `PlannedMeal`: Individual meal entry with day, meal_type (breakfast/lunch/dinner), recipe_id, source (box/discovery)
+- `MealPlanConstraints`: Planning constraints including days, dietary, max_prep_time, exclusions, diversity limits
+- `GroceryList`: Aggregated shopping list from meal plan with categorized items
+- `GroceryItem`: Individual grocery item with normalized name, recipes using it, category
 
 ## LangChain Chains (LCEL)
 
