@@ -43,6 +43,7 @@ def llm_setup():
         base_url=settings.ollama_base_url,
         model=settings.ollama_model,
         temperature=settings.llm_temperature,
+        reasoning=False,  # Disable Qwen3 thinking mode
     )
 
     # Initialize retrieval components

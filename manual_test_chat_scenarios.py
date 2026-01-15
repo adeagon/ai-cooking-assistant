@@ -73,7 +73,7 @@ SCENARIOS = [
 ]
 
 
-async def test_scenario(llm, retrieval_chain, profile_store, session_store, scenario):
+async def test_scenario(llm, llm_clarification, retrieval_chain, profile_store, session_store, scenario):
     """Test a single scenario"""
     print(f"\n{'='*80}")
     print(f"{scenario['name']}")
@@ -93,7 +93,14 @@ async def test_scenario(llm, retrieval_chain, profile_store, session_store, scen
         print(f"You: {query}\n")
 
         # Build chain with current context
-        chain = build_chat_chain(llm, retrieval_chain, profile, session, rolling_summary)
+        chain = build_chat_chain(
+            llm=llm,
+            retrieval_chain=retrieval_chain,
+            profile=profile,
+            session=session,
+            rolling_summary=rolling_summary,
+            llm_clarification=llm_clarification,  # Thoughtful LLM for clarification
+        )
 
         # Get response
         print("Assistant: ", end="", flush=True)
@@ -123,12 +130,23 @@ async def main():
     print("="*80)
     print(f"\nInitializing components...")
 
-    # Initialize LLM
+    # Initialize LLMs
+    # Main LLM for recommendations - fast, direct responses
     llm = ChatOllama(
         base_url=settings.ollama_base_url,
         model=settings.ollama_model,
         temperature=settings.llm_temperature,
         num_predict=settings.llm_max_tokens,
+        reasoning=False,  # Fast mode: no thinking for recipe presentation
+    )
+
+    # LLM for clarification - thoughtful, uses reasoning for better questions
+    llm_clarification = ChatOllama(
+        base_url=settings.ollama_base_url,
+        model=settings.ollama_model,
+        temperature=settings.llm_temperature,
+        num_predict=settings.llm_max_tokens * 2,  # Extra budget for thinking + response
+        reasoning=True,  # Enable thinking for crafting better clarification questions
     )
 
     # Initialize retrieval components
@@ -156,7 +174,7 @@ async def main():
     # Run all scenarios
     for scenario in SCENARIOS:
         try:
-            await test_scenario(llm, retrieval_chain, profile_store, session_store, scenario)
+            await test_scenario(llm, llm_clarification, retrieval_chain, profile_store, session_store, scenario)
         except Exception as e:
             print(f"\n[ERROR in {scenario['name']}: {e}]\n")
             continue

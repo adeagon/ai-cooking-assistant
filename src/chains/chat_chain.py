@@ -65,7 +65,8 @@ def should_clarify(input_data: dict[str, Any]) -> bool:
     # dish_name alone is NOT sufficient - even "tikka masala" benefits from
     # clarification about meat type, spice level, traditional vs modern, etc.
     # Require at least one additional constraint with dish_name
-    if has_dish and not (has_ingredients or has_time_or_dietary or has_goals):
+    # BUT cuisine IS a valid additional constraint (e.g., "Italian carbonara" is specific enough)
+    if has_dish and not (has_ingredients or has_time_or_dietary or has_goals or has_cuisine):
         needs_clarification = True
     else:
         # Standard check: any actionable constraint is sufficient
@@ -91,35 +92,41 @@ def build_chat_chain(
     session: SessionState,
     rolling_summary: str = "",
     exclude_recipe_ids: set[str] | None = None,
+    llm_clarification: Runnable | None = None,
 ) -> Runnable:
     """Build main LCEL chat chain.
 
     Args:
-        llm: LangChain LLM (e.g., ChatOllama)
+        llm: LangChain LLM for recommendations (fast, reasoning disabled)
         retrieval_chain: RetrievalRunnable for recipe search
         profile: User's PreferenceProfile
         session: Current SessionState
         rolling_summary: Rolling session summary
         exclude_recipe_ids: Optional set of recipe IDs to exclude from recommendations
+        llm_clarification: Optional LLM for clarification (thoughtful, reasoning enabled).
+                          If None, uses the same llm for both.
 
     Returns:
         Runnable chain that processes user input and returns response
     """
+    # Use separate LLM for clarification if provided (thinking mode for better questions)
+    clarification_llm = llm_clarification or llm
+
     # Format static context
     preferences_text = format_preferences(profile)
     session_context = format_session_context(session, rolling_summary)
     exclude_ids = exclude_recipe_ids or set()
 
-    # Build clarification chain - returns dict with response and empty cards
+    # Build clarification chain - uses thoughtful LLM for crafting good questions
     clarification_chain = (
         CLARIFICATION_PROMPT
-        | llm
+        | clarification_llm
         | StrOutputParser()
         | (lambda response: {"response": response, "cards": []})
         | _validate_response
     )
 
-    # Build recommendation chain (with retrieval) - returns dict with response and cards
+    # Build recommendation chain - uses fast LLM for presenting recipes
     recommendation_chain = (
         # First, add exclude_ids, rolling_summary, and profile to input for retrieval context
         RunnablePassthrough.assign(

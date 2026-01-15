@@ -212,7 +212,8 @@ class TestIntentClassificationLLM:
         return ChatOllama(
             base_url=settings.ollama_base_url,
             model=settings.ollama_model,
-            temperature=0.0  # Deterministic for testing
+            temperature=0.0,  # Deterministic for testing
+            reasoning=False,  # Disable Qwen3 thinking mode
         )
 
     @pytest.fixture

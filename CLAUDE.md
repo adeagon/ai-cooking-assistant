@@ -9,7 +9,8 @@ Local Recipe Assistant: A fully-local, interactive dinner-planning assistant usi
 ## Tech Stack
 
 - **Python**: 3.11-3.13
-- **LLM Runtime**: Ollama (local HTTP API) with Qwen 3 14B (thinking mode enabled for quality)
+- **LLM Runtime**: Ollama (local HTTP API) with Qwen 3 14B (hybrid reasoning mode)
+- **LLM Strategy**: Hybrid approach - thinking mode for clarification, fast mode for recommendations
 - **Vector Store**: ChromaDB with 88K recipes
 - **Embeddings**: sentence-transformers (`all-mpnet-base-v2`, 768-dim)
 - **GPU**: PyTorch 2.11 nightly with native RTX 5090 support (CUDA 12.8)
@@ -78,6 +79,15 @@ Local Recipe Assistant: A fully-local, interactive dinner-planning assistant usi
   - **intent-classifier**: Command classification with low temperature for deterministic output
   - **Token savings**: ~770 tokens saved per conversation by moving rules to Modelfile
   - **Setup**: `ollama create cooking-assistant -f config/models/Modelfile.cooking-assistant`
+- ✅ **Hybrid LLM Optimization**: Selective thinking mode for quality vs speed
+  - **Three LLM instances**: Fast (recommendations), Thoughtful (clarification), Intent (classification)
+  - **Clarification LLM**: `reasoning=True` with 2x token budget for crafting better questions
+  - **Recommendation LLM**: `reasoning=False` for fast, reliable recipe presentations
+  - **Intent LLM**: `reasoning=False` with low temperature for deterministic classification
+  - **Quality improvement**: Thoughtful mode produces more specific recipe suggestions and diverse cuisine options
+  - **Reliability fix**: Fast mode prevents empty responses from thinking consuming all tokens
+  - **Comprehensive test suite**: 48 conversation tests covering all scenarios (100% pass rate)
+  - All 289 tests passing
 
 ## Pending Tasks
 
@@ -172,6 +182,11 @@ python scripts/classify_comprehensive_tags.py --test 100  # Test on samples firs
 # Validation scripts
 python scripts/spot_check_classifications.py    # Validate classification accuracy
 python scripts/benchmark_accuracy.py            # Test classification accuracy
+
+# Conversation testing (requires Ollama running)
+python scripts/conversation_test_session.py     # Run 48 comprehensive chat tests
+python scripts/test_clarification_quality.py    # Test clarification responses
+python scripts/compare_clarification_modes.py   # Compare reasoning modes
 ```
 
 ## Architecture
@@ -243,6 +258,11 @@ Cross-encoder rerank (20 candidates)
     |
     v
 Build RecipeCards (6 for LLM context)
+    |
+    v
+[NEW] Hybrid LLM Branching
+    |  - Clarification path: llm_clarification (reasoning=True, 2x tokens)
+    |  - Recommendation path: llm (reasoning=False, fast mode)
     |
     v
 LLM generates response (clarification or recommendations)
