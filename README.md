@@ -107,6 +107,34 @@ ollama serve
 ollama pull qwen3:14b
 ```
 
+### 5. Create Custom Modelfiles (Recommended)
+
+Custom Modelfiles bake behavioral guidelines into the model, improving consistency and reducing prompt overhead:
+
+```bash
+# Create the cooking-assistant model (main chat)
+ollama create cooking-assistant -f config/models/Modelfile.cooking-assistant
+
+# Create the intent-classifier model (command detection)
+ollama create intent-classifier -f config/models/Modelfile.intent-classifier
+
+# Verify they work
+ollama run cooking-assistant "What can I make with chicken?"
+```
+
+The Modelfiles configure:
+- **cooking-assistant**: Core behaviors (English-only, dietary respect, numbered recommendations)
+- **intent-classifier**: Command classification (lower temperature for deterministic output)
+
+**To use the custom models**, set environment variables or create a `.env` file:
+```bash
+# .env file
+OLLAMA_MODEL=cooking-assistant
+OLLAMA_INTENT_MODEL=intent-classifier
+```
+
+If you skip this step, the app will use `qwen3:14b` directly (works but with less optimized behavior).
+
 ## Usage
 
 ### Search Recipes
@@ -299,12 +327,8 @@ python -m src.app.cli chat               # Interactive assistant
 
 ## Documentation
 
-- `PROJECT_PLAN.md` - Detailed phased development plan
 - `CLAUDE.md` - Architecture and development guidance
-- `PHASE_2_UPGRADE_SUMMARY.md` - GPU acceleration and quality improvements (Phase 2)
-- `PHASE_4_SUMMARY.md` - LLM integration with LangChain LCEL (Phase 4)
-- `PHASE_4_TEST_RESULTS.md` - Comprehensive Phase 4 test results (10 scenarios, GPU metrics)
-- `PHASE_5_SUMMARY.md` - Memory & personalization with feedback system (Phase 5)
+- `PROJECT_NOTES.md` - Consolidated development history and phase summaries
 - `docs/GPU_SETUP.md` - GPU setup instructions
 
 ## Project Structure
@@ -320,6 +344,10 @@ ai-cooking-assistant/
 │   ├── memory/       # User preferences (Phase 5+)
 │   ├── chains/       # LangChain LCEL (Phase 4+)
 │   └── utils/        # Shared utilities (tag_loader, etc.)
+├── config/
+│   └── models/       # Ollama Modelfiles for behavioral steering
+│       ├── Modelfile.cooking-assistant   # Main chat model
+│       └── Modelfile.intent-classifier   # Intent classification model
 ├── scripts/          # Classification and utility scripts
 │   ├── apply_ingredient_rules.py        # Deterministic vegetarian/vegan tagging
 │   ├── classify_comprehensive_tags.py   # LLM taste/occasion/cuisine classification

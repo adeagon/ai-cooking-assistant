@@ -21,7 +21,11 @@ class Settings(BaseSettings):
     )
     ollama_model: str = Field(
         default="qwen3:14b",
-        description="Ollama model name"
+        description="Ollama model name (set to 'cooking-assistant' after creating Modelfile for optimized behavior)"
+    )
+    ollama_intent_model: str = Field(
+        default="qwen3:14b",
+        description="Ollama model for intent classification (set to 'intent-classifier' after creating Modelfile)"
     )
     ollama_disable_thinking: bool = Field(
         default=True,
