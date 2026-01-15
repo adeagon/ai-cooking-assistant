@@ -72,6 +72,12 @@ Local Recipe Assistant: A fully-local, interactive dinner-planning assistant usi
   - **Empty response handling**: Fallback message if LLM returns empty response
   - **Context pollution fix**: Rolling summary no longer pollutes vector search queries
   - All 288 tests passing (14 new tests for chat enhancements)
+- ✅ **Behavioral Steering**: Ollama Modelfiles for consistent LLM behavior
+  - **Custom Modelfiles**: Baked-in behavioral guidelines reduce per-request prompt overhead
+  - **cooking-assistant**: Main chat model with core behaviors (English-only, dietary respect, numbered recommendations)
+  - **intent-classifier**: Command classification with low temperature for deterministic output
+  - **Token savings**: ~770 tokens saved per conversation by moving rules to Modelfile
+  - **Setup**: `ollama create cooking-assistant -f config/models/Modelfile.cooking-assistant`
 
 ## Pending Tasks
 

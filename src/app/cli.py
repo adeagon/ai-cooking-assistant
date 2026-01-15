@@ -468,7 +468,8 @@ async def async_chat_session():
 
     console.print(Panel.fit(
         "[bold cyan]Recipe Assistant[/bold cyan]\n"
-        f"Local recipe recommendation powered by RAG + {settings.ollama_model}\n\n"
+        f"Local recipe recommendation powered by RAG + {settings.ollama_model}\n"
+        "[dim](See README for Modelfile setup to optimize behavior)[/dim]\n\n"
         "Type /commands for full list. Key commands:\n"
         "  /like <ref>    - Like a recipe\n"
         "  /show <ref>    - Show full recipe details\n"
@@ -488,15 +489,22 @@ async def async_chat_session():
         # Initialize components
         console.print("[dim]Initializing LLM and retrieval components...[/dim]")
 
-        # Initialize LLM
-        # Note: For Qwen3 models, thinking mode is enabled by default in chat.
-        # This adds ~2-3 seconds per response but produces quality reasoning.
-        # For batch classification (scripts/), direct API calls use think=false for speed.
+        # Initialize LLMs
+        # Main LLM for chat/recommendations (uses cooking-assistant Modelfile)
         llm = ChatOllama(
             base_url=settings.ollama_base_url,
             model=settings.ollama_model,
             temperature=settings.llm_temperature,
             num_predict=settings.llm_max_tokens,
+        )
+
+        # Separate LLM for intent classification (uses intent-classifier Modelfile)
+        # Lower temperature for more deterministic classification
+        intent_llm = ChatOllama(
+            base_url=settings.ollama_base_url,
+            model=settings.ollama_intent_model,
+            temperature=0.2,
+            num_predict=256,  # Intent classification needs fewer tokens
         )
 
         # Initialize retrieval components
@@ -591,7 +599,7 @@ async def async_chat_session():
             # Try natural language intent classification (skip for explicit slash commands)
             if not user_input.strip().startswith("/"):
                 try:
-                    intent_result = classify_intent(user_input, last_recommended_cards, llm)
+                    intent_result = classify_intent(user_input, last_recommended_cards, intent_llm)
 
                     # Execute intent if detected (and not conversation)
                     if execute_intent(
