@@ -18,6 +18,19 @@ QUICK_INTENTS = {
     "new": ["new", "start over", "new session", "reset", "begin again"],
     "prefs": ["prefs", "preferences", "my preferences", "settings", "my settings"],
     "commands": ["commands", "help", "what commands", "show commands", "list commands"],
+    "mealplan": [
+        "mealplan", "meal plan", "plan meals", "plan my meals", "plan dinners",
+        "plan my week", "weekly plan", "plan my dinners", "meal planning",
+        "help me plan meals", "help me plan dinners",
+    ],
+    "grocery_list": [
+        "grocery", "groceries", "grocery list", "shopping list",
+        "what do i need to buy", "generate grocery list",
+    ],
+    "show_plan": [
+        "show plan", "show my plan", "my meal plan", "current plan",
+        "show meal plan", "view plan", "view meal plan",
+    ],
 }
 
 # Intent classification prompt
@@ -45,6 +58,13 @@ AVAILABLE ACTIONS:
   Examples: "which of those has best reviews?", "the quickest one", "highest rated", "which is fastest?"
   IMPORTANT: Use this when user references "those", "these", "of them" and asks about ratings/time/reviews
   Set filter_type to: "best_rated", "quickest", "most_reviewed", or describe the filter
+- mealplan: Start meal planning ("plan my week", "help me plan dinners", "meal plan for next week", "plan 5 dinners")
+  IMPORTANT: Use for meal PLANNING requests, not individual recipe searches
+  "plan my meals for the week" → mealplan
+  "plan 5 vegetarian dinners" → mealplan
+  "suggest a dinner" → conversation (single recipe request)
+- show_plan: View current/active meal plan ("show my plan", "what's my meal plan", "view plan", "my planned meals")
+- grocery_list: Generate grocery list from meal plan ("grocery list", "shopping list", "what do I need to buy")
 - conversation: Regular recipe query or chat (DEFAULT - use when uncertain)
 
 CRITICAL RULES:
@@ -99,6 +119,14 @@ Input: "Add the first one to my saved recipes" -> save, high confidence, recipe_
 Input: "Show me some salads" -> conversation (recipe search, not viewing a specific recipe)
 Input: "Show me options for dinner" -> conversation (recipe search)
 Input: "Show me the first one" -> show, high confidence, recipe_reference="first one"
+Input: "Plan my meals for next week" -> mealplan, high confidence
+Input: "Help me plan 5 vegetarian dinners" -> mealplan, high confidence
+Input: "Plan dinners for Monday through Friday" -> mealplan, high confidence
+Input: "Show me my meal plan" -> show_plan, high confidence
+Input: "What's on my plan for this week" -> show_plan, high confidence
+Input: "Generate a grocery list" -> grocery_list, high confidence
+Input: "What do I need to buy for my meal plan" -> grocery_list, high confidence
+Input: "I need a dinner idea" -> conversation (single recipe request, not meal planning)
 
 Analyze the user input and output a structured classification."""),
     ("human", "{user_input}")

@@ -1,8 +1,155 @@
 """Domain models for recipes, preferences, and session state."""
 
-from datetime import datetime
-from typing import Literal
+from datetime import date, datetime
+from enum import Enum
+from typing import Any, Literal
 from pydantic import BaseModel, Field
+
+
+# ============================================================================
+# Meal Planning Enums
+# ============================================================================
+
+
+class DietaryRestriction(str, Enum):
+    """Dietary restrictions for meal planning."""
+
+    NONE = "none"
+    VEGETARIAN = "vegetarian"
+    VEGAN = "vegan"
+    PESCATARIAN = "pescatarian"
+    KETO = "keto"
+    GLUTEN_FREE = "gluten_free"
+    DAIRY_FREE = "dairy_free"
+
+
+class IngredientCategory(str, Enum):
+    """Categories for ingredient-level exclusions."""
+
+    DAIRY = "dairy"
+    MEAT = "meat"
+    POULTRY = "poultry"
+    SEAFOOD = "seafood"
+    GLUTEN = "gluten"
+    NUTS = "nuts"
+    SOY = "soy"
+    EGGS = "eggs"
+
+
+class ExtractionSource(str, Enum):
+    """Source of extracted constraint value."""
+
+    RULE = "rule"
+    LLM = "llm"
+    DEFAULT = "default"
+    USER_PROFILE = "user_profile"
+
+
+# ============================================================================
+# Meal Planning Models
+# ============================================================================
+
+
+class ExtractedValue(BaseModel):
+    """Wrapper for extracted constraint with audit trail."""
+
+    value: Any
+    source: ExtractionSource
+    confidence: float = 1.0  # 0-1, lower for LLM-extracted
+
+
+class PlannedMeal(BaseModel):
+    """A single meal in a meal plan."""
+
+    id: int | None = None
+    plan_id: int | None = None
+    day: date
+    meal_type: Literal["breakfast", "lunch", "dinner"]
+    recipe_id: str
+    title: str
+    position: int = 0  # Order within day
+    source: Literal["box", "discovery"] = "discovery"
+    # NOTE: locked feature deferred to v2 (requires swap UX)
+
+
+class PlanMetrics(BaseModel):
+    """Scoring metrics for a meal plan - testable and displayable."""
+
+    unique_ingredients: int
+    total_ingredient_uses: int
+    overlap_ratio: float  # 1 - (unique / total)
+    unique_per_meal: float  # unique / num_meals (more intuitive)
+    top_shared_ingredients: list[tuple[str, int]] = Field(default_factory=list)
+    protein_distribution: dict[str, int] = Field(default_factory=dict)
+    cuisine_distribution: dict[str, int] = Field(default_factory=dict)
+    box_recipe_count: int = 0
+    discovery_recipe_count: int = 0
+
+
+class MealPlanConstraints(BaseModel):
+    """Constraints for meal plan generation."""
+
+    days: int = 5  # Default Mon-Fri
+    start_date: date | None = None
+    meal_types: list[Literal["breakfast", "lunch", "dinner"]] = Field(
+        default_factory=lambda: ["dinner"]
+    )
+    dietary: DietaryRestriction = DietaryRestriction.NONE
+    max_prep_time: int | None = None
+    servings: int | None = None
+    prefer_recipe_box: bool = True
+    ingredient_overlap_weight: float = 0.3
+    # Exclusions (ingredient-level)
+    excluded_ingredients: list[str] = Field(default_factory=list)
+    excluded_categories: list[IngredientCategory] = Field(default_factory=list)
+    excluded_tags: list[str] = Field(default_factory=list)  # e.g., "casserole"
+    # Diversity constraints
+    max_same_protein: int = 2  # Don't pick 3 chicken dinners
+    max_same_cuisine: int = 2
+    # Extraction audit trail
+    extraction_sources: dict[str, ExtractedValue] = Field(default_factory=dict)
+
+
+class MealPlan(BaseModel):
+    """A complete meal plan for a date range."""
+
+    id: int | None = None
+    user_id: str | None = None  # For future multi-user
+    name: str | None = None
+    start_date: date
+    end_date: date
+    meal_types: list[Literal["breakfast", "lunch", "dinner"]] = Field(
+        default_factory=lambda: ["dinner"]
+    )
+    status: Literal["draft", "active", "completed", "archived"] = "draft"
+    schema_version: int = 1  # For future migrations
+    constraints: dict | None = None  # Store constraints dict for regeneration/debug
+    metrics: PlanMetrics | None = None  # Computed scoring metrics
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    meals: list[PlannedMeal] = Field(default_factory=list)
+
+
+class GroceryItem(BaseModel):
+    """A single item on the grocery list."""
+
+    ingredient: str  # Original text for display
+    normalized: str  # Normalized form for grouping
+    recipes: list[str] = Field(default_factory=list)  # Recipe titles using this
+    category: str | None = None  # produce, protein, dairy, etc.
+
+
+class GroceryList(BaseModel):
+    """Aggregated grocery list from a meal plan."""
+
+    plan_id: int
+    items: list[GroceryItem] = Field(default_factory=list)
+    generated_at: datetime | None = None
+
+
+# ============================================================================
+# Recipe Models
+# ============================================================================
 
 
 class NormalizedIngredient(BaseModel):
@@ -138,7 +285,8 @@ class IntentClassification(BaseModel):
     intent: Literal[
         "save", "like", "dislike", "rate", "show", "cooked",
         "history", "box", "unsave", "new", "prefs", "commands",
-        "addpref", "filter_previous", "conversation"
+        "addpref", "filter_previous", "mealplan", "show_plan",
+        "grocery_list", "conversation"
     ]
     confidence: Literal["high", "medium", "low"]
     recipe_reference: str | None = None  # e.g., "first one", "2", "the pasta", "it"

@@ -293,11 +293,28 @@ def execute_intent(
             "  /box             - List all saved recipes\n"
             "  /show <ref>      - Show full recipe\n"
             "  /show box <N>    - Show recipe from box\n\n"
+            "[bold]Meal Planning:[/bold]\n"
+            "  /mealplan        - Start meal planning\n"
+            "  /plan            - View current meal plan\n"
+            "  /grocery         - Generate grocery list\n\n"
             "[bold]History:[/bold]\n"
             "  /history         - View cooking history\n\n"
             "[dim]<ref> can be: number, name, 'it', 'that', etc.[/dim]",
             title="Help"
         ))
+        return True
+
+    # Handle meal planning intents
+    if intent == "mealplan":
+        console.print("[yellow]Meal planning mode activated. Use /mealplan for the full interactive experience.[/yellow]")
+        return True
+
+    if intent == "show_plan":
+        console.print("[yellow]Use /plan to view your current meal plan.[/yellow]")
+        return True
+
+    if intent == "grocery_list":
+        console.print("[yellow]Use /grocery to generate a grocery list from your meal plan.[/yellow]")
         return True
 
     # Handle filter_previous intent - sort/filter previous recommendations
@@ -452,6 +469,231 @@ def execute_intent(
     return False
 
 
+async def handle_mealplan_command(
+    input_text: str,
+    profile,
+    recipe_box_store,
+    meal_plan_store,
+    settings,
+    console: Console
+):
+    """Handle the /mealplan command to generate a meal plan.
+
+    Args:
+        input_text: Optional constraints from user (e.g., "5 vegetarian dinners")
+        profile: User's preference profile
+        recipe_box_store: RecipeBoxStore for saved recipes
+        meal_plan_store: MealPlanStore for storing plans
+        settings: Application settings
+        console: Rich console for output
+    """
+    from datetime import date, timedelta
+    from src.planning.constraint_extractor import MealPlanConstraintExtractor
+    from src.planning.meal_planner import MealPlanner
+    from src.ingest.build_db import get_recipe_by_id
+
+    console.print(Panel.fit(
+        "[bold cyan]Meal Planning[/bold cyan]\n\n"
+        "I'll help you plan meals for the week.\n"
+        "Defaults: 5 dinners, starting today\n\n"
+        "[dim]Examples:[/dim]\n"
+        "  /mealplan\n"
+        "  /mealplan 5 vegetarian dinners\n"
+        "  /mealplan quick weeknight meals\n"
+        "  /mealplan 7 days, no casseroles",
+        border_style="cyan"
+    ))
+
+    # Extract constraints from input
+    extractor = MealPlanConstraintExtractor(db_path=settings.sqlite_db_path)
+    constraints = extractor.extract(
+        input_text if input_text else "plan dinners",
+        profile=profile
+    )
+
+    # Show extracted constraints
+    console.print(f"\n[bold]Planning {constraints.days} {constraints.meal_types[0] if constraints.meal_types else 'dinner'}(s)[/bold]")
+    if constraints.dietary.value != "none":
+        console.print(f"  Diet: {constraints.dietary.value}")
+    if constraints.max_prep_time:
+        console.print(f"  Max time: {constraints.max_prep_time} minutes")
+    if constraints.excluded_categories:
+        console.print(f"  Excluding: {', '.join(c.value for c in constraints.excluded_categories)}")
+    if constraints.excluded_tags:
+        console.print(f"  No: {', '.join(constraints.excluded_tags)}")
+
+    console.print("\n[dim]Generating plan...[/dim]")
+
+    try:
+        # Get saved recipes from Recipe Box
+        saved_recipes = recipe_box_store.get_saved_recipes(limit=100)
+        box_recipe_ids = {r.recipe_id for r in saved_recipes}
+
+        # Initialize planner and generate plan
+        planner = MealPlanner(db_path=settings.sqlite_db_path)
+        meals, metrics = planner.generate_plan(constraints, profile, box_recipe_ids=box_recipe_ids)
+
+        if not meals:
+            console.print("[yellow]No recipes found matching your criteria. Try relaxing some constraints.[/yellow]")
+            return
+
+        # Create meal plan object
+        from src.domain.models import MealPlan
+        start_date = constraints.start_date or date.today()
+        end_date = start_date + timedelta(days=constraints.days - 1)
+
+        plan = MealPlan(
+            start_date=start_date,
+            end_date=end_date,
+            meal_types=constraints.meal_types or ["dinner"],
+            status="draft",
+            constraints=constraints.model_dump(exclude={"extraction_sources"}),
+            metrics=metrics,
+            meals=meals
+        )
+
+        # Save plan
+        plan_id = meal_plan_store.save_plan(plan)
+        plan.id = plan_id
+
+        # Display the plan
+        console.print(f"\n[bold green]✓ Meal Plan Generated[/bold green] (ID: {plan_id})\n")
+
+        # Group meals by day
+        from collections import defaultdict
+        meals_by_day = defaultdict(list)
+        for meal in meals:
+            meals_by_day[meal.day].append(meal)
+
+        for day in sorted(meals_by_day.keys()):
+            day_meals = meals_by_day[day]
+            day_str = day.strftime("%A, %b %d")
+            console.print(f"[bold]{day_str}[/bold]")
+            for meal in day_meals:
+                source_icon = "📦" if meal.source == "box" else "🔍"
+                console.print(f"  {source_icon} {meal.title}")
+
+        # Show metrics
+        console.print(f"\n[dim]Metrics:[/dim]")
+        console.print(f"  [dim]Unique ingredients: {metrics.unique_ingredients}[/dim]")
+        console.print(f"  [dim]Ingredient overlap: {metrics.overlap_ratio:.0%}[/dim]")
+        console.print(f"  [dim]From Recipe Box: {metrics.box_recipe_count}, Discovery: {metrics.discovery_recipe_count}[/dim]")
+
+        if metrics.top_shared_ingredients:
+            shared = ", ".join(f"{ing}" for ing, _ in metrics.top_shared_ingredients[:5])
+            console.print(f"  [dim]Common ingredients: {shared}[/dim]")
+
+        console.print(f"\n[dim]Use /plan to view, /grocery for shopping list[/dim]")
+
+    except Exception as e:
+        console.print(f"[red]Error generating meal plan: {e}[/red]")
+        logger.exception("Meal plan generation error")
+
+
+def display_current_meal_plan(meal_plan_store, settings, console: Console):
+    """Display the current/most recent meal plan.
+
+    Args:
+        meal_plan_store: MealPlanStore instance
+        settings: Application settings
+        console: Rich console for output
+    """
+    from src.ingest.build_db import get_recipe_by_id
+
+    # Get most recent active or draft plan
+    plans = meal_plan_store.get_plans(limit=1)
+    if not plans:
+        console.print("[yellow]No meal plans found. Use /mealplan to create one.[/yellow]")
+        return
+
+    plan = plans[0]
+
+    console.print(Panel.fit(
+        f"[bold cyan]Meal Plan[/bold cyan] (ID: {plan.id})\n"
+        f"Status: {plan.status}\n"
+        f"Period: {plan.start_date} to {plan.end_date}",
+        border_style="cyan"
+    ))
+
+    if not plan.meals:
+        console.print("[yellow]Plan has no meals yet.[/yellow]")
+        return
+
+    # Group meals by day
+    from collections import defaultdict
+    meals_by_day = defaultdict(list)
+    for meal in plan.meals:
+        meals_by_day[meal.day].append(meal)
+
+    for day in sorted(meals_by_day.keys()):
+        day_meals = meals_by_day[day]
+        day_str = day.strftime("%A, %b %d")
+        console.print(f"\n[bold]{day_str}[/bold]")
+        for meal in day_meals:
+            source_icon = "📦" if meal.source == "box" else "🔍"
+            console.print(f"  {source_icon} {meal.title}")
+
+    if plan.metrics:
+        console.print(f"\n[dim]Metrics: {plan.metrics.unique_ingredients} ingredients, "
+                      f"{plan.metrics.overlap_ratio:.0%} overlap[/dim]")
+
+
+def generate_and_display_grocery_list(meal_plan_store, settings, console: Console):
+    """Generate and display grocery list for current meal plan.
+
+    Args:
+        meal_plan_store: MealPlanStore instance
+        settings: Application settings
+        console: Rich console for output
+    """
+    from src.planning.grocery_list import GroceryListGenerator
+    from src.ingest.build_db import get_recipe_by_id
+
+    # Get most recent plan
+    plans = meal_plan_store.get_plans(limit=1)
+    if not plans:
+        console.print("[yellow]No meal plans found. Use /mealplan to create one first.[/yellow]")
+        return
+
+    plan = plans[0]
+    if not plan.meals:
+        console.print("[yellow]Your meal plan has no meals yet.[/yellow]")
+        return
+
+    # Fetch full recipes
+    recipes = {}
+    for meal in plan.meals:
+        recipe = get_recipe_by_id(settings.sqlite_db_path, meal.recipe_id)
+        if recipe:
+            recipes[meal.recipe_id] = recipe
+
+    if not recipes:
+        console.print("[yellow]Could not load recipes for the meal plan.[/yellow]")
+        return
+
+    # Generate grocery list
+    generator = GroceryListGenerator()
+    grocery_list = generator.generate(plan, recipes, exclude_pantry_staples=True)
+
+    if not grocery_list.items:
+        console.print("[yellow]No items in grocery list (all ingredients may be pantry staples).[/yellow]")
+        return
+
+    # Display using generator's format method
+    formatted = generator.format_for_display(grocery_list, show_recipes=True, group_by_category=True)
+    console.print(Panel.fit(
+        f"[bold cyan]Grocery List[/bold cyan]\n"
+        f"For meal plan {plan.start_date} to {plan.end_date}\n\n"
+        f"{formatted}",
+        border_style="green"
+    ))
+
+    # Show summary
+    summary = generator.get_summary(grocery_list)
+    total_items = sum(summary.values())
+    console.print(f"\n[dim]Total: {total_items} items across {len(summary)} categories[/dim]")
+
+
 async def async_chat_session():
     """Async chat session with LLM integration."""
     from pathlib import Path
@@ -475,11 +717,11 @@ async def async_chat_session():
         "  /show <ref>    - Show full recipe details\n"
         "  /save <ref>    - Save to Recipe Box\n"
         "  /box           - View saved recipes\n"
-        "  /prefs         - Show preferences\n"
-        "  /addpref       - Add a preference\n"
+        "  /mealplan      - Plan meals for the week\n"
+        "  /grocery       - Generate grocery list\n"
         "  /commands      - Show all commands\n"
         "  quit           - Exit the chat\n\n"
-        "[dim]Tip: You can also use natural language like 'I loved that one' or 'show me recipe 2'[/dim]",
+        "[dim]Tip: You can also say 'plan my dinners' or 'help me plan meals'[/dim]",
         border_style="cyan"
     ))
 
@@ -543,6 +785,10 @@ async def async_chat_session():
         recipe_box_store = RecipeBoxStore(db_path=settings.sqlite_db_path)
         summarizer = RollingSummarizer()
 
+        # Initialize meal plan store
+        from src.memory.meal_plan_store import MealPlanStore
+        meal_plan_store = MealPlanStore(db_path=settings.sqlite_db_path)
+
         # Load profile and session
         profile = profile_store.load()
         session_id, session = session_store.get_or_create_current()
@@ -594,6 +840,11 @@ async def async_chat_session():
                     "  /box             - View saved recipes\n"
                     "  /show <ref>      - Show full recipe details\n"
                     "  /show box <N>    - Show recipe N from Recipe Box\n\n"
+                    "[bold]Meal Planning:[/bold]\n"
+                    "  /mealplan        - Plan meals for the week\n"
+                    "  /mealplan <constraints> - Plan with specific constraints\n"
+                    "  /plan            - View current meal plan\n"
+                    "  /grocery         - Generate grocery list\n\n"
                     "[bold]History:[/bold]\n"
                     "  /history         - Show cooking history\n\n"
                     "[bold]Preference Types for /addpref:[/bold]\n"
@@ -602,7 +853,7 @@ async def async_chat_session():
                     "  diet <type>      - Set diet (none, vegetarian, vegan, keto...)\n"
                     "  spice <level>    - Set spice level (none, mild, medium, hot)\n"
                     "  time <minutes>   - Set default cooking time limit\n\n"
-                    "[dim]Tip: You can also use natural language like 'I loved that one'[/dim]",
+                    "[dim]Tip: You can also use natural language like 'plan my dinners' or 'I loved that one'[/dim]",
                     border_style="cyan"
                 ))
                 continue
@@ -933,6 +1184,29 @@ async def async_chat_session():
                         console.print(f"  {i}. {saved.title} (saved: {saved_str})")
                 else:
                     console.print("[yellow]Recipe Box is empty. Use /save <recipe> to add recipes![/yellow]")
+                continue
+
+            # /mealplan command - start meal planning
+            if user_input.strip().lower().startswith("/mealplan"):
+                input_text = user_input[9:].strip()  # Get text after /mealplan
+                await handle_mealplan_command(
+                    input_text=input_text,
+                    profile=profile,
+                    recipe_box_store=recipe_box_store,
+                    meal_plan_store=meal_plan_store,
+                    settings=settings,
+                    console=console
+                )
+                continue
+
+            # /plan command - show current meal plan
+            if user_input.strip().lower() in ("/plan", "/showplan"):
+                display_current_meal_plan(meal_plan_store, settings, console)
+                continue
+
+            # /grocery command - generate grocery list
+            if user_input.strip().lower() in ("/grocery", "/groceries"):
+                generate_and_display_grocery_list(meal_plan_store, settings, console)
                 continue
 
             # Skip empty input

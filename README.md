@@ -13,11 +13,14 @@ Local recipe assistant using RAG (Retrieval-Augmented Generation) with Qwen 3 14
 - ✅ **Metadata Filtering**: ChromaDB-level dietary/cuisine/time filtering
 - ✅ **Chat Enhancements**: Bug fixes for reliability (negative constraints, intent classification, empty response handling)
 - ✅ **Hybrid LLM**: Selective thinking mode - thoughtful clarification, fast recommendations
+- ✅ **Meal Planning**: Plan meals for the week with ingredient overlap optimization
 
 ## Features
 
 - **Conversational Interface**: Natural language chat powered by Qwen 3 14B (Phase 4)
 - **Smart Recommendations**: Recommends real recipes from Food.com dataset (88K+ indexed)
+- **Meal Planning**: Plan up to a week of meals with ingredient overlap optimization
+- **Grocery List**: Auto-generated shopping list from your meal plan
 - **Recipe Box**: Save and bookmark recipes for later reference
 - **Feedback System**: Like/dislike/rate recipes to improve recommendations (Phase 5)
 - **Cooking History**: Track what you've cooked and when (Phase 5)
@@ -193,6 +196,9 @@ python -m src.app.cli chat
 | `/save <ref>` | "save that recipe", "bookmark it", "add to my box" |
 | `/unsave <ref>` | "remove from saved", "unsave it" |
 | `/box` | "my saved recipes", "show bookmarks", "recipe box" |
+| `/mealplan` | "plan my meals", "help me plan dinners", "meal plan" |
+| `/plan` | "show my plan", "view meal plan", "current plan" |
+| `/grocery` | "grocery list", "shopping list", "what do I need to buy" |
 | `quit` / `exit` | "quit", "exit" |
 
 **Examples:**
@@ -215,12 +221,21 @@ You: /rate 4 2
 You: /cooked 2
 [Marked as cooked: Pasta Carbonara]
 
+# Meal planning
+You: plan 5 vegetarian dinners for the week
+[Generates meal plan with ingredient overlap optimization]
+You: show my plan
+[Displays the meal plan]
+You: grocery list
+[Generates aggregated shopping list]
+```
+
 ## Development
 
 ### Run Tests
 
 ```bash
-# Run all tests (289 tests total)
+# Run all tests (545 tests total)
 pytest
 
 # Run retrieval tests (including metadata filtering)
@@ -234,6 +249,9 @@ pytest tests/test_memory.py tests/test_chains.py tests/test_chat_integration.py 
 
 # Run Phase 5 tests (feedback + cooking history + integration)
 pytest tests/test_feedback.py tests/test_history.py tests/test_feedback_integration.py -v
+
+# Run meal planning tests
+pytest tests/test_meal_plan*.py tests/test_ingredient*.py tests/test_grocery*.py -v
 
 # Run LLM integration tests (requires Ollama running)
 pytest tests/test_llm_chat_phase5.py -v -s -m llm
@@ -249,7 +267,7 @@ pytest --cov=src
 ```
 
 **Test Suite**:
-- **289 total tests** (all passing)
+- **545 total tests** (all passing)
 - **Chat Enhancement Tests (14 new)**:
   - Negative constraint extraction ("no casseroles", "without cheese")
   - Article stripping for recipe name matching
@@ -266,6 +284,14 @@ pytest --cov=src
 - **Phase 5 Tests (48)**: FeedbackStore, HistoryStore, integration workflows
 - **Phase 4 Tests (76)**: Memory system, chains, integration, chat scenarios
 - **Hybrid LLM Tests (1 new)**: Dish name + cuisine clarification logic
+- **Meal Planning Tests (240+)**:
+  - Ingredient normalizer (phrase preservation, stop tokens)
+  - Ingredient categories classifier (dairy, meat, seafood, nuts, gluten)
+  - Meal plan store (CRUD, constraints persistence)
+  - Meal planner algorithm (beam search, determinism, diversity)
+  - Grocery list generator (aggregation, pantry exclusion)
+  - Constraint extractor (days, dietary, time, exclusions)
+  - Integration tests (full flow, audit trail, Recipe Box integration)
 - **Phase 1-3 Tests (82)**: All regression tests passing
 - **Conversation Tests (48)**: Comprehensive chatbot scenarios (run via `scripts/conversation_test_session.py`)
 
@@ -339,6 +365,7 @@ ai-cooking-assistant/
 │   ├── llm/          # LLM client (Phase 4+)
 │   ├── memory/       # User preferences (Phase 5+)
 │   ├── chains/       # LangChain LCEL (Phase 4+)
+│   ├── planning/     # Meal planning system
 │   └── utils/        # Shared utilities (tag_loader, etc.)
 ├── config/
 │   └── models/       # Ollama Modelfiles for behavioral steering
