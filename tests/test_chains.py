@@ -216,6 +216,41 @@ class TestConstraintExtractor:
         assert constraints.cuisine == "asian"
         assert "savory" in constraints.goals
 
+    def test_extract_avoid_no_casseroles(self, extractor):
+        """Test extracting avoid constraint with 'no' keyword."""
+        constraints = extractor.extract_constraints("mexican recipes but no casseroles")
+
+        assert "casseroles" in constraints.avoid
+
+    def test_extract_avoid_without_cheese(self, extractor):
+        """Test extracting avoid constraint with 'without' keyword."""
+        constraints = extractor.extract_constraints("pasta without cheese")
+
+        assert "cheese" in constraints.avoid
+
+    def test_extract_avoid_but_not(self, extractor):
+        """Test extracting avoid constraint with 'but not' phrase."""
+        constraints = extractor.extract_constraints("show me some salads but not soups")
+
+        assert "soups" in constraints.avoid
+
+    def test_extract_avoid_multiple(self, extractor):
+        """Test extracting multiple avoid constraints."""
+        constraints = extractor.extract_constraints("no casseroles, avoid soups")
+
+        assert "casseroles" in constraints.avoid
+        assert "soups" in constraints.avoid
+
+    def test_extract_avoid_with_other_constraints(self, extractor):
+        """Test extracting avoid alongside other constraints."""
+        constraints = extractor.extract_constraints(
+            "quick italian dinner, no casseroles"
+        )
+
+        assert constraints.cuisine == "italian"
+        assert constraints.time_limit == 30  # quick
+        assert "casseroles" in constraints.avoid
+
 
 class TestShouldClarify:
     """Tests for should_clarify gate function."""

@@ -87,6 +87,15 @@ class RetrievalRunnable(Runnable):
             results = [r for r in results if r.recipe_id not in exclude_ids]
             logger.info(f"Filtered {before_count - len(results)} excluded recipes, {len(results)} remaining")
 
+        # Filter out recipes matching avoid constraints (e.g., "no casseroles")
+        if constraints.avoid:
+            before_count = len(results)
+            results = self._filter_avoid_constraints(results, constraints.avoid)
+            logger.info(
+                f"Filtered {before_count - len(results)} avoided recipes, {len(results)} remaining",
+                avoid=constraints.avoid
+            )
+
         # Step 2: Rerank with cross-encoder
         reranked = self.reranker.rerank(query, results, top_k=self.settings.k_rerank)
 
@@ -157,6 +166,51 @@ class RetrievalRunnable(Runnable):
             query_parts.extend(constraints.goals)
 
         return " ".join(query_parts)
+
+    def _filter_avoid_constraints(
+        self,
+        results: list,
+        avoid: list[str],
+    ) -> list:
+        """Filter out recipes that match avoid constraints.
+
+        Args:
+            results: List of RetrievalResult objects
+            avoid: List of terms to avoid (e.g., ["casseroles", "soups"])
+
+        Returns:
+            Filtered list of results
+        """
+        if not avoid:
+            return results
+
+        filtered = []
+        for result in results:
+            title_lower = result.title.lower()
+            # Check if any avoid term appears in the title
+            should_avoid = False
+            for term in avoid:
+                term_lower = term.lower()
+                # Check for exact word match or partial match
+                if term_lower in title_lower:
+                    should_avoid = True
+                    break
+                # Also check singular/plural variations
+                if term_lower.endswith("s"):
+                    singular = term_lower[:-1]
+                    if singular in title_lower:
+                        should_avoid = True
+                        break
+                else:
+                    plural = term_lower + "s"
+                    if plural in title_lower:
+                        should_avoid = True
+                        break
+
+            if not should_avoid:
+                filtered.append(result)
+
+        return filtered
 
     def _format_cards(self, cards: list[RecipeCard]) -> str:
         """Format recipe cards for LLM prompt.

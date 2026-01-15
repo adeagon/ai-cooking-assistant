@@ -86,10 +86,15 @@ def build_chat_chain(
     session_context = format_session_context(session, rolling_summary)
     exclude_ids = exclude_recipe_ids or set()
 
-    # Build clarification chain
-    clarification_chain = CLARIFICATION_PROMPT | llm | StrOutputParser()
+    # Build clarification chain - returns dict with response and empty cards
+    clarification_chain = (
+        CLARIFICATION_PROMPT
+        | llm
+        | StrOutputParser()
+        | (lambda response: {"response": response, "cards": []})
+    )
 
-    # Build recommendation chain (with retrieval)
+    # Build recommendation chain (with retrieval) - returns dict with response and cards
     recommendation_chain = (
         # First, add exclude_ids, rolling_summary, and profile to input for retrieval context
         RunnablePassthrough.assign(
@@ -104,10 +109,12 @@ def build_chat_chain(
             preferences_text=lambda _: preferences_text,
             session_context=lambda _: session_context,
         )
-        # Finally, generate recommendation
-        | RECOMMENDATION_PROMPT
-        | llm
-        | StrOutputParser()
+        # Generate recommendation and return both response and cards
+        | RunnablePassthrough.assign(
+            response=RECOMMENDATION_PROMPT | llm | StrOutputParser()
+        )
+        # Keep only response and cards
+        | (lambda x: {"response": x["response"], "cards": x.get("cards", [])})
     )
 
     # Main chain with branching logic

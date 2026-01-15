@@ -166,6 +166,28 @@ class TestRecipeReferenceResolver:
         result = resolve_recipe_reference("Pizza", recipe_cards)
         assert result is None
 
+    def test_resolve_with_leading_article_the(self, recipe_cards):
+        """Test resolving with 'the' prefix - should match without the article."""
+        result = resolve_recipe_reference("the chicken tacos", recipe_cards)
+        assert result is not None
+        recipe_id, title = result
+        assert recipe_id == "123"
+
+    def test_resolve_with_leading_article_a(self, recipe_cards):
+        """Test resolving with 'a' prefix - should match without the article."""
+        result = resolve_recipe_reference("a lemon herb chicken", recipe_cards)
+        assert result is not None
+        recipe_id, title = result
+        assert recipe_id == "456"
+
+    def test_resolve_word_subset_matching(self, recipe_cards):
+        """Test that all ref words appearing in title matches."""
+        # "herb chicken" should match "Lemon Herb Chicken" because both words appear
+        result = resolve_recipe_reference("herb chicken", recipe_cards)
+        assert result is not None
+        recipe_id, title = result
+        assert recipe_id == "456"
+
 
 class TestExclusionFiltering:
     """Test that liked/disliked/cooked recipes are excluded from recommendations."""

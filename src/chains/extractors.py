@@ -116,6 +116,13 @@ class ConstraintExtractor:
         "mild": r"\bmild\b",
     }
 
+    # Negative constraint patterns (things to avoid/exclude)
+    AVOID_PATTERNS = [
+        r"(?:no|without|avoid|skip|exclude|not?)\s+(\w+(?:\s+\w+)?)",  # "no casseroles", "without cheese"
+        r"(?:but not?|except|except for)\s+(\w+(?:\s+\w+)?)",  # "but not casseroles", "except soups"
+        r"(?:don'?t want|don'?t like|hate)\s+(\w+(?:\s+\w+)?)",  # "don't want casseroles"
+    ]
+
     def extract_constraints(self, user_input: str) -> Constraints:
         """Extract constraints from user input.
 
@@ -147,6 +154,9 @@ class ConstraintExtractor:
         # Extract goals
         goals = self._extract_goals(text)
 
+        # Extract avoid/exclude constraints
+        avoid = self._extract_avoid(text)
+
         # Build constraints object
         constraints = Constraints(
             ingredients=ingredients,
@@ -155,6 +165,7 @@ class ConstraintExtractor:
             cuisine=cuisine,
             goals=goals,
             dish_name=dish_name,
+            avoid=avoid,
         )
 
         logger.info(
@@ -165,6 +176,7 @@ class ConstraintExtractor:
             cuisine=cuisine,
             dish_name=dish_name,
             goals=goals,
+            avoid=avoid,
         )
 
         return constraints
@@ -247,6 +259,30 @@ class ConstraintExtractor:
                     return cuisine, dish_name
 
         return cuisine, dish_name
+
+    def _extract_avoid(self, text: str) -> list[str]:
+        """Extract things to avoid/exclude from user input.
+
+        Matches patterns like:
+        - "no casseroles"
+        - "but not soups"
+        - "without cheese"
+        - "avoid spicy"
+        """
+        avoid = []
+
+        for pattern in self.AVOID_PATTERNS:
+            matches = re.finditer(pattern, text, re.IGNORECASE)
+            for match in matches:
+                item = match.group(1).strip().lower()
+                # Skip common false positives
+                if item and item not in ("a", "an", "the", "any", "some", "it"):
+                    # Clean up: remove trailing punctuation
+                    item = re.sub(r"[.,!?]+$", "", item)
+                    if item and item not in avoid:
+                        avoid.append(item)
+
+        return avoid
 
     def _extract_goals(self, text: str) -> list[str]:
         """Extract user goals/preferences using DB tags + fallback mappings."""

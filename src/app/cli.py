@@ -68,6 +68,21 @@ def chat():
     asyncio.run(async_chat_session())
 
 
+def strip_articles(text: str) -> str:
+    """Strip leading articles (the, a, an) from text.
+
+    Args:
+        text: Text to process
+
+    Returns:
+        Text with leading articles removed
+    """
+    words = text.split()
+    if words and words[0].lower() in ("the", "a", "an"):
+        return " ".join(words[1:])
+    return text
+
+
 def resolve_recipe_reference(ref: str, last_cards: list) -> tuple[str, str] | None:
     """Resolve recipe reference (number or name) to (recipe_id, title).
 
@@ -91,9 +106,23 @@ def resolve_recipe_reference(ref: str, last_cards: list) -> tuple[str, str] | No
             return (last_cards[idx].recipe_id, last_cards[idx].title)
         return None
 
+    # Normalize reference: lowercase and strip articles
+    ref_normalized = strip_articles(ref.lower())
+
     # Try fuzzy match on title
     for card in last_cards:
-        if ref.lower() in card.title.lower():
+        title_normalized = strip_articles(card.title.lower())
+
+        # Check if ref is in title OR title is in ref (handles partial names)
+        if ref_normalized in title_normalized or title_normalized in ref_normalized:
+            return (card.recipe_id, card.title)
+
+        # Also try matching without the full reference (for cases like "chicken orzo salad"
+        # matching "asian chicken orzo salad")
+        ref_words = set(ref_normalized.split())
+        title_words = set(title_normalized.split())
+        # If all significant ref words appear in title, consider it a match
+        if ref_words and ref_words.issubset(title_words):
             return (card.recipe_id, card.title)
 
     return None
@@ -323,11 +352,18 @@ def execute_intent(
                 if 0 <= idx < len(saved_recipes):
                     result = (saved_recipes[idx].recipe_id, saved_recipes[idx].title)
             except ValueError:
-                # Try name matching with normalization (handles apostrophes, etc.)
-                ref_normalized = normalize_for_matching(ref)
+                # Try name matching with normalization (handles apostrophes, articles, etc.)
+                ref_normalized = strip_articles(normalize_for_matching(ref))
                 for saved in saved_recipes:
-                    title_normalized = normalize_for_matching(saved.title)
-                    if ref_normalized in title_normalized:
+                    title_normalized = strip_articles(normalize_for_matching(saved.title))
+                    # Check if ref is in title OR title is in ref
+                    if ref_normalized in title_normalized or title_normalized in ref_normalized:
+                        result = (saved.recipe_id, saved.title)
+                        break
+                    # Also try word-based matching
+                    ref_words = set(ref_normalized.split())
+                    title_words = set(title_normalized.split())
+                    if ref_words and ref_words.issubset(title_words):
                         result = (saved.recipe_id, saved.title)
                         break
 
@@ -904,27 +940,23 @@ async def async_chat_session():
             # Invoke chain
             console.print("\n[dim]Thinking...[/dim]")
 
-            response = await chain.ainvoke({"user_input": user_input})
+            result = await chain.ainvoke({"user_input": user_input})
+
+            # Extract response and cards from chain result
+            response = result.get("response", "")
+            cards = result.get("cards", [])
 
             # Display response
-            console.print(f"\n[bold blue]Assistant:[/bold blue] {response}")
+            console.print(f"\n[bold blue]A:[/bold blue] {response}")
 
-            # Capture recipe cards if this was a recommendation (not clarification)
-            # Check if response contains recipe recommendations by invoking retrieval
+            # Update last recommended cards for feedback commands
+            if cards:
+                last_recommended_cards = cards
+
+            # Re-extract constraints for rolling summary update
             from src.chains.extractors import ConstraintExtractor
-            from src.chains.chat_chain import should_clarify
             extractor = ConstraintExtractor()
             constraints = extractor.extract_constraints(user_input)
-
-            # If this wasn't a clarification, capture the cards for feedback commands
-            input_data = {"user_input": user_input, "constraints": constraints, "session": session}
-            if not should_clarify(input_data):
-                try:
-                    retrieval_result = retrieval_chain.invoke(input_data)
-                    last_recommended_cards = retrieval_result.get("cards", [])
-                except Exception as e:
-                    logger.warning("Failed to capture recipe cards", error=str(e))
-                    last_recommended_cards = []
 
             # Update rolling summary
             rolling_summary = summarizer.update_summary(rolling_summary, constraints, user_input)
