@@ -202,13 +202,20 @@ User Input → Intent Classification → Command or Conversation
 - Quick pattern cache for stateless commands
 - Conservative classification (defaults to conversation)
 
-**Chat Enhancements** (Latest):
+**Chat Enhancements**:
 - Negative constraints: "no casseroles", "without cheese" now respected
 - Intent classifier fixes: Save commands, "show me some X" disambiguation
 - Recipe name matching: Article stripping, word-subset matching
 - English-only responses enforced
 - Empty response handling with fallback
 - Context pollution fix: Rolling summary removed from retrieval query
+
+**Behavioral Steering** (Latest):
+- Custom Ollama Modelfiles bake behavioral guidelines into model configuration
+- `cooking-assistant`: Main chat model with core behaviors (English-only, dietary respect, numbered recommendations)
+- `intent-classifier`: Command classification with low temperature (0.2) for deterministic output
+- ~770 tokens saved per conversation by moving rules from prompts to Modelfile
+- Setup: `ollama create cooking-assistant -f config/models/Modelfile.cooking-assistant`
 
 ---
 
@@ -269,13 +276,26 @@ k_rerank = 20
 k_context = 6
 
 # LLM
-llm_model = "qwen3:14b"
+ollama_model = "qwen3:14b"  # or "cooking-assistant" with Modelfile
+ollama_intent_model = "qwen3:14b"  # or "intent-classifier" with Modelfile
 llm_temperature = 0.3
 llm_max_tokens = 1024
 ollama_timeout = 300.0
 
 # Embeddings
 embedding_model = "all-mpnet-base-v2"
+```
+
+**Modelfile Setup** (recommended for improved behavior):
+```bash
+ollama create cooking-assistant -f config/models/Modelfile.cooking-assistant
+ollama create intent-classifier -f config/models/Modelfile.intent-classifier
+```
+
+Then set in `.env`:
+```
+OLLAMA_MODEL=cooking-assistant
+OLLAMA_INTENT_MODEL=intent-classifier
 ```
 
 ---
