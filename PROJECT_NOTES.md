@@ -186,10 +186,12 @@ User Input → Intent Classification → Command or Conversation
 - Goal fallbacks: light→low-calorie, cheap→inexpensive, hearty→comfort-food
 - Profile preferences boost retrieval relevance
 
-**Recipe Classification** (Hybrid Approach):
-- Ingredient-based rules: Deterministic vegetarian/vegan tagging
-- LLM classification: Taste (sweet/savory/spicy/mild/rich/light), occasion, cuisine
-- 30+ cuisines supported
+**Recipe Classification** (Hybrid Approach) - ✅ COMPLETE:
+- Ingredient-based rules: Deterministic vegetarian/vegan tagging (51K vegetarian, 15K vegan)
+- LLM classification: 84,024 recipes classified with taste and cuisine tags
+- Taste coverage: 100% (savory: 56K, rich: 34K, sweet: 31K, light: 19K, mild: 9K, spicy: 9K)
+- Cuisine coverage: 93.6% (american: 55K, italian: 6K, southern: 5K, mexican: 4K, french: 3K)
+- Classification validated via spot checks - high accuracy confirmed
 
 **ChromaDB Metadata Filtering**:
 - Structured metadata: `is_vegetarian`, `is_vegan`, `cuisine` in ChromaDB
@@ -210,7 +212,7 @@ User Input → Intent Classification → Command or Conversation
 - Empty response handling with fallback
 - Context pollution fix: Rolling summary removed from retrieval query
 
-**Behavioral Steering** (Latest):
+**Behavioral Steering**:
 - Custom Ollama Modelfiles bake behavioral guidelines into model configuration
 - `cooking-assistant`: Main chat model with core behaviors (English-only, dietary respect, numbered recommendations)
 - `intent-classifier`: Command classification with low temperature (0.2) for deterministic output

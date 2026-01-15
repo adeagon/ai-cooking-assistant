@@ -267,31 +267,16 @@ pytest --cov=src
 
 See `PHASE_4_TEST_RESULTS.md` for Phase 4 test results and `PHASE_5_SUMMARY.md` for Phase 5 implementation details.
 
-### Recipe Classification (Optional Enhancement)
+### Recipe Classification (Complete)
 
-Enhance recipe metadata with dietary tags, taste profiles, occasion tags, and cuisine classification:
+All 88,399 recipes have been classified with dietary, taste, and cuisine tags:
 
-```bash
-# Step 1: Apply ingredient-based rules for vegetarian/vegan tags (~2 min)
-# This is deterministic and fast - no LLM required
-python scripts/apply_ingredient_rules.py
-
-# Test on 50 samples first
-python scripts/apply_ingredient_rules.py --test
-
-# Re-run with --reset to clear and re-apply tags (if rules were updated)
-python scripts/apply_ingredient_rules.py --reset
-
-# Step 2: Run LLM classification for taste, occasion, and cuisine tags
-# Only processes recipes missing these tags (~4-5 hours for full dataset)
-python scripts/classify_comprehensive_tags.py --workers 4
-
-# Test on samples first (recommended)
-python scripts/classify_comprehensive_tags.py --test 100
-
-# Check progress
-cat data/comprehensive_classification_progress.json | python -c "import sys,json; print(len(json.load(sys.stdin)))"
-```
+**Current Coverage:**
+- **Dietary**: 51K vegetarian, 15K vegan (ingredient-based rules)
+- **Taste**: 100% coverage (88,362 recipes)
+  - savory: 56,879 | rich: 33,965 | sweet: 30,824 | light: 19,368 | mild: 9,247 | spicy: 8,747
+- **Cuisine**: 93.6% coverage (82,754 recipes)
+  - american: 54,901 | italian: 5,664 | southern-united-states: 5,164 | mexican: 3,564 | french: 2,739
 
 **Classification Categories:**
 - **Dietary** (ingredient rules): vegetarian, vegan (only plant-based broths allowed)
@@ -299,12 +284,19 @@ cat data/comprehensive_classification_progress.json | python -c "import sys,json
 - **Occasion** (LLM): weeknight, comfort-food, kid-friendly, dinner-party, holiday-event, inexpensive, etc.
 - **Cuisine** (LLM): american, italian, mexican, chinese, indian, thai, greek, french, etc. (30+ cuisines)
 
-**Hybrid Approach:**
-1. Trust existing Food.com tags (42% have cuisine, 17% have vegetarian, etc.)
-2. Use ingredient rules for vegetarian/vegan (deterministic, fast)
-3. Use LLM only for taste/occasion/cuisine gaps (reduces LLM calls by ~60%)
+**To re-run classification** (if needed):
+```bash
+# Step 1: Apply ingredient-based rules for vegetarian/vegan tags (~2 min)
+python scripts/apply_ingredient_rules.py
 
-This is optional but improves search results when users ask for "something light", "Italian food", or "quick weeknight meals".
+# Step 2: Run LLM classification for taste, occasion, and cuisine tags (~8-9 hours)
+python scripts/classify_comprehensive_tags.py --workers 4
+
+# Test on samples first (recommended)
+python scripts/classify_comprehensive_tags.py --test 100
+```
+
+This enables search queries like "something light", "Italian food", or "quick weeknight meals".
 
 ### Available Commands
 

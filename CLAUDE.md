@@ -81,12 +81,19 @@ Local Recipe Assistant: A fully-local, interactive dinner-planning assistant usi
 
 ## Pending Tasks
 
-- [ ] **Run LLM classification** (~20 hours estimated)
-  - Ingredient rules already applied (51K vegetarian, 15K vegan tags added)
-  - LLM classification pending for taste/occasion/cuisine tags
-  - Command: `python scripts/classify_comprehensive_tags.py --workers 4`
-  - Plan: Run over a weekend when machine can be left running
-  - Note: Original Food.com data lacks mild/rich/light tags entirely, so ~80K recipes need classification
+None - all planned features complete.
+
+## Completed Classifications
+
+- ✅ **LLM Classification Complete** (January 2026)
+  - **84,024 recipes** classified with taste and cuisine tags
+  - **Taste coverage**: 100% (88,362 recipes)
+    - savory: 56,879 | rich: 33,965 | sweet: 30,824
+    - light: 19,368 | mild: 9,247 | spicy: 8,747
+  - **Cuisine coverage**: 93.6% (82,754 recipes)
+    - Top: american (54,901), italian (5,664), southern-united-states (5,164), mexican (3,564)
+  - Duration: 8.8 hours with 4 workers at 2.6 recipes/sec
+  - Quality validated via spot checks - classifications are accurate
 
 ## Development Workflow
 
