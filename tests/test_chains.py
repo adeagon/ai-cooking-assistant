@@ -339,6 +339,16 @@ class TestShouldClarify:
         # dish_name + time is sufficient - no clarification needed
         assert should_clarify(input_data) is False
 
+    def test_no_clarify_with_dish_name_and_cuisine(self):
+        """Test that dish_name + cuisine satisfies requirement (e.g., 'Italian carbonara')."""
+        input_data = {
+            "constraints": Constraints(dish_name="carbonara", cuisine="italian"),
+            "session": SessionState(),
+        }
+
+        # dish_name + cuisine is sufficient - no clarification needed
+        assert should_clarify(input_data) is False
+
 
 class TestPromptFormatters:
     """Tests for prompt formatting functions."""

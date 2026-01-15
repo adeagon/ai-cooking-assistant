@@ -490,21 +490,32 @@ async def async_chat_session():
         console.print("[dim]Initializing LLM and retrieval components...[/dim]")
 
         # Initialize LLMs
-        # Main LLM for chat/recommendations (uses cooking-assistant Modelfile)
+        # Main LLM for recommendations - fast, direct responses
         llm = ChatOllama(
             base_url=settings.ollama_base_url,
             model=settings.ollama_model,
             temperature=settings.llm_temperature,
             num_predict=settings.llm_max_tokens,
+            reasoning=False,  # Fast mode: no thinking for recipe presentation
         )
 
-        # Separate LLM for intent classification (uses intent-classifier Modelfile)
+        # LLM for clarification - thoughtful, uses reasoning for better questions
+        llm_clarification = ChatOllama(
+            base_url=settings.ollama_base_url,
+            model=settings.ollama_model,
+            temperature=settings.llm_temperature,
+            num_predict=settings.llm_max_tokens * 2,  # Extra budget for thinking + response
+            reasoning=True,  # Enable thinking for crafting better clarification questions
+        )
+
+        # Separate LLM for intent classification
         # Lower temperature for more deterministic classification
         intent_llm = ChatOllama(
             base_url=settings.ollama_base_url,
             model=settings.ollama_intent_model,
             temperature=0.2,
             num_predict=256,  # Intent classification needs fewer tokens
+            reasoning=False,  # Fast mode for simple classification
         )
 
         # Initialize retrieval components
@@ -942,7 +953,8 @@ async def async_chat_session():
                 profile=profile,
                 session=session,
                 rolling_summary=rolling_summary,
-                exclude_recipe_ids=exclude_ids
+                exclude_recipe_ids=exclude_ids,
+                llm_clarification=llm_clarification,  # Thoughtful LLM for clarification questions
             )
 
             # Invoke chain
