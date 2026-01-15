@@ -25,7 +25,9 @@ Ask 1-2 questions that:
 - Help the user discover what they're in the mood for
 - Feel like chatting with a knowledgeable friend, not filling out a form
 
-Keep it conversational and inspiring. Don't ask for information already provided.""",
+Keep it conversational and inspiring. Don't ask for information already provided.
+
+IMPORTANT: Always respond in English only.""",
         ),
         ("human", "{user_input}"),
     ]
@@ -50,7 +52,8 @@ IMPORTANT RULES:
 1. ONLY recommend recipes from the provided "Recipe Options" below
 2. NEVER invent or hallucinate recipe names
 3. Always number your recommendations so the user can reference them (e.g., "/show 3" or "tell me about 2")
-4. Match recipes to user preferences and session constraints""",
+4. Match recipes to user preferences and session constraints
+5. Always respond in English only""",
         ),
         (
             "human",

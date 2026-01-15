@@ -18,6 +18,30 @@ from src.domain.models import Constraints, PreferenceProfile, SessionState
 
 logger = get_logger(__name__)
 
+EMPTY_RESPONSE_FALLBACK = (
+    "I apologize, but I couldn't generate a response. "
+    "Could you please rephrase your request?"
+)
+
+
+def _validate_response(result: dict[str, Any]) -> dict[str, Any]:
+    """Ensure response is not empty.
+
+    Args:
+        result: Dictionary with "response" and "cards" keys
+
+    Returns:
+        Result with fallback message if response was empty
+    """
+    response = result.get("response", "").strip()
+    if not response:
+        logger.warning("Empty LLM response, using fallback")
+        return {
+            "response": EMPTY_RESPONSE_FALLBACK,
+            "cards": result.get("cards", [])
+        }
+    return result
+
 
 def should_clarify(input_data: dict[str, Any]) -> bool:
     """Determine if we need to ask clarifying questions.
@@ -92,6 +116,7 @@ def build_chat_chain(
         | llm
         | StrOutputParser()
         | (lambda response: {"response": response, "cards": []})
+        | _validate_response
     )
 
     # Build recommendation chain (with retrieval) - returns dict with response and cards
@@ -115,6 +140,7 @@ def build_chat_chain(
         )
         # Keep only response and cards
         | (lambda x: {"response": x["response"], "cards": x.get("cards", [])})
+        | _validate_response
     )
 
     # Main chain with branching logic

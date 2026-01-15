@@ -412,3 +412,68 @@ class TestPromptFormatters:
         assert "PREVIOUS DISCUSSION:" in formatted
         assert "ingredients: chicken" in formatted
         assert "CURRENT SESSION:" in formatted
+
+
+class TestPromptRules:
+    """Tests for prompt template rules."""
+
+    def test_clarification_prompt_requires_english(self):
+        """Verify clarification prompt requires English-only responses."""
+        from src.chains.prompts import CLARIFICATION_PROMPT
+
+        # Get the system message template
+        system_template = CLARIFICATION_PROMPT.messages[0].prompt.template
+
+        assert "English" in system_template
+
+    def test_recommendation_prompt_requires_english(self):
+        """Verify recommendation prompt requires English-only responses."""
+        from src.chains.prompts import RECOMMENDATION_PROMPT
+
+        # Get the system message template
+        system_template = RECOMMENDATION_PROMPT.messages[0].prompt.template
+
+        assert "English" in system_template
+
+
+class TestEmptyResponseValidation:
+    """Tests for empty response validation."""
+
+    def test_validate_response_with_valid_response(self):
+        """Test that valid responses pass through unchanged."""
+        from src.chains.chat_chain import _validate_response
+
+        result = {"response": "Here are some recipes", "cards": []}
+        validated = _validate_response(result)
+
+        assert validated["response"] == "Here are some recipes"
+        assert validated["cards"] == []
+
+    def test_validate_response_with_empty_string(self):
+        """Test that empty responses get fallback message."""
+        from src.chains.chat_chain import _validate_response, EMPTY_RESPONSE_FALLBACK
+
+        result = {"response": "", "cards": []}
+        validated = _validate_response(result)
+
+        assert validated["response"] == EMPTY_RESPONSE_FALLBACK
+        assert validated["cards"] == []
+
+    def test_validate_response_with_whitespace_only(self):
+        """Test that whitespace-only responses get fallback message."""
+        from src.chains.chat_chain import _validate_response, EMPTY_RESPONSE_FALLBACK
+
+        result = {"response": "   \n\t  ", "cards": []}
+        validated = _validate_response(result)
+
+        assert validated["response"] == EMPTY_RESPONSE_FALLBACK
+
+    def test_validate_response_preserves_cards(self):
+        """Test that cards are preserved even with empty response."""
+        from src.chains.chat_chain import _validate_response
+
+        cards = [{"title": "Test Recipe"}]
+        result = {"response": "", "cards": cards}
+        validated = _validate_response(result)
+
+        assert validated["cards"] == cards

@@ -55,11 +55,10 @@ class RetrievalRunnable(Runnable):
         user_input = input_data.get("user_input", "")
         constraints: Constraints = input_data.get("constraints", Constraints())
         exclude_ids: set[str] = input_data.get("exclude_recipe_ids", set())
-        rolling_summary = input_data.get("rolling_summary", "")
         profile: PreferenceProfile | None = input_data.get("profile")
 
-        # Build query from user input, constraints, conversation context, and profile
-        query = self._build_query(user_input, constraints, rolling_summary, profile)
+        # Build query from user input, constraints, and profile
+        query = self._build_query(user_input, constraints, profile)
 
         logger.info(
             "Starting retrieval pipeline",
@@ -115,15 +114,13 @@ class RetrievalRunnable(Runnable):
         self,
         user_input: str,
         constraints: Constraints,
-        rolling_summary: str = "",
         profile: PreferenceProfile | None = None,
     ) -> str:
-        """Build search query from input, constraints, conversation context, and profile.
+        """Build search query from input, constraints, and profile.
 
         Args:
             user_input: Original user input
             constraints: Extracted constraints
-            rolling_summary: Conversation context from previous turns
             profile: Optional user profile for preference boosting
 
         Returns:
@@ -131,12 +128,10 @@ class RetrievalRunnable(Runnable):
         """
         query_parts = [user_input]
 
-        # Add conversation context (e.g., "cuisine: indian" from previous turns)
-        # This helps maintain context when user says things like "traditional ingredients"
-        if rolling_summary:
-            # Extract key terms from rolling summary
-            # Format is like: "ingredients: chicken; cuisine: indian; goals: spicy"
-            query_parts.append(rolling_summary)
+        # NOTE: rolling_summary is intentionally NOT added to the query.
+        # It was causing context pollution where previous session context
+        # (e.g., "cuisine: indian") would influence unrelated searches.
+        # The session context is passed to the LLM via session_context in the prompt.
 
         # Add ingredients to query
         if constraints.ingredients:

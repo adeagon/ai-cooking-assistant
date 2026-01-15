@@ -11,6 +11,7 @@ Local recipe assistant using RAG (Retrieval-Augmented Generation) with Qwen 3 14
 - ✅ Phase 5: Memory & personalization with feedback system
 - ✅ **Enhanced**: Data-driven constraint extraction + taste classification
 - ✅ **Metadata Filtering**: ChromaDB-level dietary/cuisine/time filtering
+- ✅ **Chat Enhancements**: Bug fixes for reliability (negative constraints, intent classification, empty response handling)
 
 ## Features
 
@@ -25,6 +26,7 @@ Local recipe assistant using RAG (Retrieval-Augmented Generation) with Qwen 3 14
 - **Cross-Encoder Reranking**: Improved relevance with ms-marco-MiniLM-L-6-v2 (Phase 3)
 - **Intelligent Clarification**: Asks questions when constraints are insufficient (Phase 4)
 - **Constraint Extraction**: Data-driven NLP for ingredients, time, diet, cuisine, goals (Enhanced)
+- **Negative Constraints**: "no casseroles", "without cheese", "but not soups" now respected
 - **Precise Dietary Filtering**: Vegetarian/vegan constraints enforced at database level (no false positives)
 - **32 Cuisines Supported**: Asian, Korean, Greek, Middle-Eastern, and more loaded from recipe data
 - **Taste Tags**: Light, hearty, mild, rich classifications via LLM (parallel processing)
@@ -188,7 +190,7 @@ You: /cooked 2
 ### Run Tests
 
 ```bash
-# Run all tests (274 tests total)
+# Run all tests (288 tests total)
 pytest
 
 # Run retrieval tests (including metadata filtering)
@@ -217,8 +219,14 @@ pytest --cov=src
 ```
 
 **Test Suite**:
-- **274 total tests** (all passing)
-- **Metadata Filtering Tests (11 new)**:
+- **288 total tests** (all passing)
+- **Chat Enhancement Tests (14 new)**:
+  - Negative constraint extraction ("no casseroles", "without cheese")
+  - Article stripping for recipe name matching
+  - Word-subset matching for fuzzy lookups
+  - English-only prompt rules
+  - Empty response validation
+- **Metadata Filtering Tests (11)**:
   - Vegetarian/vegan filter verification
   - Cuisine filter (Italian, etc.)
   - Time constraint filtering

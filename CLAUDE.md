@@ -64,7 +64,14 @@ Local Recipe Assistant: A fully-local, interactive dinner-planning assistant usi
   - **Guaranteed constraint satisfaction**: Vegan filter returns ONLY vegan recipes (no false positives)
   - **Fixed broth classification**: Animal-based broths (chicken, beef) now correctly excluded from vegetarian
   - **51K vegetarian, 15K vegan** recipes after corrected tagging
-  - All 274 tests passing (11 new tests for metadata filtering)
+- ✅ **Chat Enhancements**: Critical bug fixes for chat reliability
+  - **Negative constraints**: "no casseroles", "without cheese", "but not soups" now respected
+  - **Intent classifier fixes**: Fixed "save to recipe box" saving wrong recipe, "show me some X" misclassification
+  - **Recipe name matching**: Article stripping ("the", "a", "an") and word-subset matching for fuzzy lookups
+  - **English-only responses**: Prompts now enforce English language output
+  - **Empty response handling**: Fallback message if LLM returns empty response
+  - **Context pollution fix**: Rolling summary no longer pollutes vector search queries
+  - All 288 tests passing (14 new tests for chat enhancements)
 
 ## Pending Tasks
 
@@ -202,7 +209,7 @@ Slash Command Detection (/like, /save, /show, etc.) [Fallback]
 Compute exclusion set (liked + disliked + recently cooked recipes)
     |
     v
-Constraint extraction from user query (dietary, cuisine, time, ingredients)
+Constraint extraction from user query (dietary, cuisine, time, ingredients, avoid)
     |
     v
 GPU-accelerated embedding generation
@@ -216,6 +223,9 @@ Vector retrieval with metadata filters (100 candidates)
 Exclusion filtering (remove liked/disliked/cooked)
     |
     v
+Avoid filtering (remove recipes matching "no X" constraints)
+    |
+    v
 Cross-encoder rerank (20 candidates)
     |
     v
@@ -223,6 +233,9 @@ Build RecipeCards (6 for LLM context)
     |
     v
 LLM generates response (clarification or recommendations)
+    |
+    v
+Validate response (fallback if empty)
     |
     v
 Display response + capture recipe cards for commands
@@ -246,6 +259,7 @@ Display response + capture recipe cards for commands
 
 - `Recipe`: Canonical recipe with id, title, ingredients, instructions, tags, ratings
 - `RecipeCard`: Compact prompt representation with title, tags, key_ingredients, one_sentence_summary, why_match
+- `Constraints`: Extracted constraints from user query (ingredients, time_limit, dietary, cuisine, goals, dish_name, avoid)
 - `PreferenceProfile`: Persistent user preferences (spice level, diet, avoid ingredients, cuisines)
 - `SessionState`: Current session constraints (ingredients on hand, time limit, goals)
 - `RecipeFeedback`: User feedback on recipes (like, dislike, rate) with timestamps (Phase 5)
