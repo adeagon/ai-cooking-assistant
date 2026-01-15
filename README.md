@@ -12,6 +12,7 @@ Local recipe assistant using RAG (Retrieval-Augmented Generation) with Qwen 3 14
 - ✅ **Enhanced**: Data-driven constraint extraction + taste classification
 - ✅ **Metadata Filtering**: ChromaDB-level dietary/cuisine/time filtering
 - ✅ **Chat Enhancements**: Bug fixes for reliability (negative constraints, intent classification, empty response handling)
+- ✅ **Hybrid LLM**: Selective thinking mode - thoughtful clarification, fast recommendations
 
 ## Features
 
@@ -33,6 +34,7 @@ Local recipe assistant using RAG (Retrieval-Augmented Generation) with Qwen 3 14
 - **Profile Preferences in Search**: User's preferred cuisines boost retrieval relevance
 - **Session Memory**: Rolling summaries and user preferences (Phase 4)
 - **Recipe Cards**: Compact LLM-ready representations (120-250 tokens) (Phase 3)
+- **Hybrid LLM Mode**: Thoughtful clarification questions (reasoning enabled), fast recommendations (reasoning disabled)
 - **Fully Local**: No cloud dependencies - runs entirely on your machine
 
 ## Tech Stack
@@ -218,7 +220,7 @@ You: /cooked 2
 ### Run Tests
 
 ```bash
-# Run all tests (288 tests total)
+# Run all tests (289 tests total)
 pytest
 
 # Run retrieval tests (including metadata filtering)
@@ -247,7 +249,7 @@ pytest --cov=src
 ```
 
 **Test Suite**:
-- **288 total tests** (all passing)
+- **289 total tests** (all passing)
 - **Chat Enhancement Tests (14 new)**:
   - Negative constraint extraction ("no casseroles", "without cheese")
   - Article stripping for recipe name matching
@@ -263,7 +265,9 @@ pytest --cov=src
 - **Enhanced Tests (12)**: Data-driven cuisine/goal extraction
 - **Phase 5 Tests (48)**: FeedbackStore, HistoryStore, integration workflows
 - **Phase 4 Tests (76)**: Memory system, chains, integration, chat scenarios
+- **Hybrid LLM Tests (1 new)**: Dish name + cuisine clarification logic
 - **Phase 1-3 Tests (82)**: All regression tests passing
+- **Conversation Tests (48)**: Comprehensive chatbot scenarios (run via `scripts/conversation_test_session.py`)
 
 See `PHASE_4_TEST_RESULTS.md` for Phase 4 test results and `PHASE_5_SUMMARY.md` for Phase 5 implementation details.
 
@@ -346,7 +350,10 @@ ai-cooking-assistant/
 │   ├── classify_taste_tags_parallel.py  # Legacy taste classification (deprecated)
 │   ├── spot_check_classifications.py    # Validation script
 │   ├── benchmark_accuracy.py            # Classification accuracy testing
-│   └── benchmark_comprehensive.py       # Model comparison benchmarks
+│   ├── benchmark_comprehensive.py       # Model comparison benchmarks
+│   ├── conversation_test_session.py     # Comprehensive chatbot tests (48 scenarios)
+│   ├── test_clarification_quality.py    # Clarification response quality tests
+│   └── compare_clarification_modes.py   # Compare reasoning=True vs False
 ├── tests/            # Unit and integration tests
 ├── data/             # Data directory (not in git)
 │   ├── raw/          # Downloaded datasets
