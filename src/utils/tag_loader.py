@@ -47,9 +47,14 @@ CUISINE_TAGS = {
 
 # Known goal/taste tags
 GOAL_TAGS = {
+    # Taste tags (from LLM classification)
     "sweet",
     "savory",
     "spicy",
+    "mild",
+    "rich",
+    "light",
+    # Goal tags
     "healthy",
     "comfort-food",
     "low-calorie",
@@ -63,9 +68,8 @@ GOAL_TAGS = {
 
 # Fallback mappings for user-friendly terms → actual tags
 GOAL_FALLBACKS = {
-    "light": "low-calorie",
-    "hearty": "comfort-food",
-    "filling": "comfort-food",
+    "hearty": "rich",  # Map hearty to rich taste
+    "filling": "rich",
     "cheap": "inexpensive",
     "budget": "inexpensive",
     "quick": "easy",

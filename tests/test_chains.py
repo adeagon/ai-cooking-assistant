@@ -191,11 +191,11 @@ class TestConstraintExtractor:
 
         assert "sweet" in constraints.goals
 
-    def test_extract_goal_fallback_light(self, extractor):
-        """Test that 'light' falls back to 'low-calorie'."""
+    def test_extract_goal_light(self, extractor):
+        """Test that 'light' is extracted as a direct taste tag."""
         constraints = extractor.extract_constraints("something light")
 
-        assert "low-calorie" in constraints.goals
+        assert "light" in constraints.goals
 
     def test_extract_goal_fallback_cheap(self, extractor):
         """Test that 'cheap' falls back to 'inexpensive'."""
@@ -204,10 +204,10 @@ class TestConstraintExtractor:
         assert "inexpensive" in constraints.goals
 
     def test_extract_goal_fallback_hearty(self, extractor):
-        """Test that 'hearty' falls back to 'comfort-food'."""
+        """Test that 'hearty' falls back to 'rich' taste tag."""
         constraints = extractor.extract_constraints("something hearty")
 
-        assert "comfort-food" in constraints.goals
+        assert "rich" in constraints.goals
 
     def test_extract_combined_asian_savory(self, extractor):
         """Test extracting both asian cuisine and savory goal together."""
