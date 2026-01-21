@@ -1,14 +1,23 @@
 """Chat blueprint for Flask web application."""
 
+import json
+from pathlib import Path
+
 from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
 
 from src.app.logging_config import get_logger
+from src.services.chat_service import ChatService, ChatResult, UserContext
 from src.web.auth import get_session_sid
 
 logger = get_logger(__name__)
 
 chat_bp = Blueprint("chat", __name__)
+
+
+def _get_db_path() -> Path:
+    """Get SQLite database path from app config."""
+    return Path(current_app.config.get("SQLITE_DB_PATH", "data/sqlite/recipes.db"))
 
 
 @chat_bp.route("/chat", methods=["GET"])
@@ -48,11 +57,7 @@ def chat_page():
 @chat_bp.route("/chat", methods=["POST"])
 @login_required
 def chat_submit():
-    """Handle chat message submission.
-
-    Phase 3: Basic message handling (echo).
-    Phase 4: Full chat integration with LLM.
-    """
+    """Handle chat message submission with ChatService integration."""
     sid = get_session_sid()
 
     if not sid:
@@ -72,85 +77,62 @@ def chat_submit():
         # Empty message - just reload chat
         return redirect(url_for("chat.chat_page"))
 
-    # Phase 3: Basic echo response for testing
-    # Phase 4 will replace this with actual chat logic
-    response = _process_message_basic(message)
+    # Parse last cards from server-side session state (NEVER from client)
+    last_cards = []
+    if web_session.last_cards_json:
+        try:
+            last_cards = json.loads(web_session.last_cards_json)
+        except json.JSONDecodeError:
+            logger.warning("Failed to parse last_cards_json", session_id=sid)
+            last_cards = []
 
-    # Store exchange atomically
+    # Create user context with per-request stores
+    user_ctx = UserContext(
+        user_id=current_user.id,
+        db_path=_get_db_path(),
+    )
+
+    # Process message through ChatService
+    chat_service = ChatService(user_ctx, last_cards)
+    result: ChatResult = chat_service.process_message(
+        message=message,
+        rolling_summary=web_session.rolling_summary,
+    )
+
+    # Prepare updated state
+    # If result has new cards, serialize them; otherwise keep existing
+    new_cards_json = web_session.last_cards_json
+    if result.cards:
+        new_cards_json = json.dumps([
+            card.model_dump() if hasattr(card, "model_dump") else card
+            for card in result.cards
+        ])
+
+    # If result provides new rolling summary, use it; otherwise keep existing
+    new_rolling_summary = (
+        result.rolling_summary
+        if result.rolling_summary is not None
+        else web_session.rolling_summary
+    )
+
+    # Store exchange atomically (session state + messages + prune + TTL refresh)
     web_session_store.append_exchange(
         session_id=sid,
         user_text=message,
-        assistant_text=response,
-        rolling_summary=web_session.rolling_summary,
-        last_cards_json=web_session.last_cards_json,
+        assistant_text=result.response,
+        rolling_summary=new_rolling_summary,
+        last_cards_json=new_cards_json,
     )
 
     logger.info(
         "Chat message processed",
         user_id=current_user.id,
         message_length=len(message),
-        response_length=len(response),
+        response_length=len(result.response),
+        command_executed=result.command_executed,
     )
 
     return redirect(url_for("chat.chat_page"))
-
-
-def _process_message_basic(message: str) -> str:
-    """Basic message processing for Phase 3.
-
-    This is a placeholder that will be replaced with full chat logic in Phase 4.
-
-    Args:
-        message: User's message
-
-    Returns:
-        Assistant response
-    """
-    # Handle basic commands
-    message_lower = message.lower().strip()
-
-    if message_lower in ("/commands", "/help"):
-        return (
-            "**Available Commands**\n\n"
-            "**Session:**\n"
-            "- `/new` - Start a new session\n"
-            "- `/prefs` - Show your preferences\n"
-            "- `/commands` - Show this help\n\n"
-            "**Recipe Feedback:**\n"
-            "- `/like <ref>` - Like a recipe\n"
-            "- `/dislike <ref>` - Dislike a recipe\n"
-            "- `/rate <1-5> <ref>` - Rate a recipe\n"
-            "- `/cooked <ref>` - Mark as cooked\n\n"
-            "**Recipe Box:**\n"
-            "- `/save <ref>` - Save recipe\n"
-            "- `/unsave <ref>` - Remove from box\n"
-            "- `/box` - View saved recipes\n"
-            "- `/show <ref>` - Show full recipe\n\n"
-            "**Meal Planning:**\n"
-            "- `/mealplan` - Plan meals\n"
-            "- `/plan` - View current plan\n"
-            "- `/grocery` - Generate grocery list\n\n"
-            "*Full chat integration coming in Phase 4.*"
-        )
-
-    if message_lower == "/new":
-        return "Starting a new session. (Full implementation in Phase 4)"
-
-    if message_lower == "/prefs":
-        return "Your preferences will be displayed here. (Full implementation in Phase 4)"
-
-    if message_lower == "/box":
-        return "Your Recipe Box will be displayed here. (Full implementation in Phase 4)"
-
-    if message_lower == "/history":
-        return "Your cooking history will be displayed here. (Full implementation in Phase 4)"
-
-    # Default response
-    return (
-        f"I received your message: \"{message}\"\n\n"
-        "*Full chat integration with recipe recommendations coming in Phase 4.*\n\n"
-        "Try `/commands` to see available commands."
-    )
 
 
 @chat_bp.route("/chat/clear", methods=["POST"])

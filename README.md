@@ -2,7 +2,7 @@
 
 Local recipe assistant using RAG (Retrieval-Augmented Generation) with Qwen 3 14B via Ollama.
 
-## Current Status: Phase 5+ Enhanced ✅
+## Current Status: Multi-User Web UI ✅
 
 - ✅ Phase 1: Data ingestion (88,399 recipes indexed)
 - ✅ Phase 2: Embeddings + vector store with GPU acceleration
@@ -14,9 +14,11 @@ Local recipe assistant using RAG (Retrieval-Augmented Generation) with Qwen 3 14
 - ✅ **Chat Enhancements**: Bug fixes for reliability (negative constraints, intent classification, empty response handling)
 - ✅ **Hybrid LLM**: Selective thinking mode - thoughtful clarification, fast recommendations
 - ✅ **Meal Planning**: Plan meals for the week with ingredient overlap optimization
+- ✅ **Multi-User Web UI**: Flask-based web interface with user authentication and isolated data
 
 ## Features
 
+### Core Features
 - **Conversational Interface**: Natural language chat powered by Qwen 3 14B (Phase 4)
 - **Smart Recommendations**: Recommends real recipes from Food.com dataset (88K+ indexed)
 - **Meal Planning**: Plan up to a week of meals with ingredient overlap optimization
@@ -26,6 +28,16 @@ Local recipe assistant using RAG (Retrieval-Augmented Generation) with Qwen 3 14
 - **Cooking History**: Track what you've cooked and when (Phase 5)
 - **Smart Filtering**: Excludes liked/cooked/disliked recipes from future recommendations (Phase 5)
 - **Full Recipe Display**: View complete recipes with ingredients and instructions (Phase 5)
+
+### Multi-User Web Interface (NEW)
+- **Web UI**: Browser-based chat interface - no command line required
+- **Multi-User Support**: Each user has isolated preferences, feedback, history, and saved recipes
+- **User Authentication**: Secure login with password hashing (bcrypt)
+- **Multiple Sessions**: Users can be logged in from multiple browsers/devices simultaneously
+- **Server-Side State**: Session data stored securely in SQLite, not browser cookies
+- **Full Feature Parity**: All CLI commands available in web interface
+
+### Technical Features
 - **GPU-Accelerated Search**: Semantic search with ChromaDB + high-quality embeddings (all-mpnet-base-v2)
 - **Cross-Encoder Reranking**: Improved relevance with ms-marco-MiniLM-L-6-v2 (Phase 3)
 - **Intelligent Clarification**: Asks questions when constraints are insufficient (Phase 4)
@@ -48,7 +60,8 @@ Local recipe assistant using RAG (Retrieval-Augmented Generation) with Qwen 3 14
 - **GPU**: PyTorch 2.11 nightly with native RTX 5090 support
 - **Reranker**: cross-encoder (ms-marco-MiniLM-L-6-v2, GPU-accelerated)
 - **Framework**: LangChain (LCEL chains)
-- **Database**: SQLite for recipes and user state
+- **Database**: SQLite for recipes and user state (with WAL mode for concurrency)
+- **Web Framework**: Flask with Flask-Login, Flask-WTF (CSRF), Flask-Limiter
 - **CLI**: Typer
 
 ## Requirements
@@ -140,7 +153,82 @@ OLLAMA_INTENT_MODEL=intent-classifier
 
 If you skip this step, the app will use `qwen3:14b` directly (works but with less optimized behavior).
 
+### 6. Web App Setup (Optional)
+
+For the multi-user web interface:
+
+```bash
+# Install web dependencies
+pip install -e ".[web]"
+
+# Or install all extras including web
+pip install -e ".[dev,ml,web]"
+```
+
+**First-Time Setup: Create User Accounts**
+
+Run the database migration to set up multi-user support:
+
+```bash
+python scripts/migrate_multiuser.py
+```
+
+This creates:
+- User tables with predefined accounts (Alex, Caitlyn, Family, Guest, Test)
+- Web session tables for server-side state
+- Migrates existing CLI data to the `default_user` account
+
+**Set User Passwords**
+
+Users set their passwords on first login via the web UI. For production or LAN access, you need a setup token:
+
+```bash
+# Set environment variable (required for security when exposed beyond localhost)
+export INITIAL_SETUP_TOKEN=your-secret-token-here
+```
+
+**Start the Web Server**
+
+```bash
+# Development (localhost only - default)
+python -m src.web.app
+
+# Development with custom port
+PORT=8080 python -m src.web.app
+
+# LAN access (allows connections from other devices)
+ALLOW_LAN=1 SECRET_KEY=your-secret-key INITIAL_SETUP_TOKEN=setup-token python -m src.web.app
+
+# Production with Gunicorn (recommended for multiple users)
+pip install gunicorn
+gunicorn -w 2 -b 127.0.0.1:5000 "src.web.app:create_app()"
+```
+
+**Access the Web Interface**
+
+1. Open http://localhost:5000 in your browser
+2. Log in with a username (Alex, Caitlyn, Family, etc.)
+3. On first login, you'll be prompted to set a password
+4. Start chatting!
+
 ## Usage
+
+### Web Interface (Recommended for Multiple Users)
+
+The web interface provides a browser-based chat experience:
+
+1. **Login**: Navigate to http://localhost:5000 and enter your username/password
+2. **Chat**: Type messages in the chat box, just like the CLI
+3. **Commands**: Use the same slash commands (`/like 1`, `/show 2`, etc.) or natural language
+4. **Logout**: Click the logout button when done
+
+**Key Differences from CLI**:
+- Each user has their own isolated data (preferences, history, saved recipes)
+- Sessions persist across browser restarts (24-hour expiration)
+- Multiple users can use the app simultaneously
+- No need for command line access
+
+### CLI Interface (Single User)
 
 ### Search Recipes
 
@@ -235,7 +323,7 @@ You: grocery list
 ### Run Tests
 
 ```bash
-# Run all tests (545 tests total)
+# Run all tests (624 tests total)
 pytest
 
 # Run retrieval tests (including metadata filtering)
@@ -249,6 +337,9 @@ pytest tests/test_memory.py tests/test_chains.py tests/test_chat_integration.py 
 
 # Run Phase 5 tests (feedback + cooking history + integration)
 pytest tests/test_feedback.py tests/test_history.py tests/test_feedback_integration.py -v
+
+# Run multi-user web tests
+pytest tests/test_user_store.py tests/test_web_session_store.py tests/test_multiuser_stores.py -v
 
 # Run meal planning tests
 pytest tests/test_meal_plan*.py tests/test_ingredient*.py tests/test_grocery*.py -v
@@ -267,8 +358,12 @@ pytest --cov=src
 ```
 
 **Test Suite**:
-- **545 total tests** (all passing)
-- **Chat Enhancement Tests (14 new)**:
+- **624 total tests** (all passing)
+- **Multi-User Web Tests (82 new)**:
+  - UserStore tests (31): User CRUD, password verification, active status
+  - WebSessionStore tests (31): Session TTL, messages, append_exchange atomicity
+  - Multi-user isolation tests (20): Data isolation verification across all stores
+- **Chat Enhancement Tests (14)**:
   - Negative constraint extraction ("no casseroles", "without cheese")
   - Article stripping for recipe name matching
   - Word-subset matching for fuzzy lookups
@@ -283,7 +378,7 @@ pytest --cov=src
 - **Enhanced Tests (12)**: Data-driven cuisine/goal extraction
 - **Phase 5 Tests (48)**: FeedbackStore, HistoryStore, integration workflows
 - **Phase 4 Tests (76)**: Memory system, chains, integration, chat scenarios
-- **Hybrid LLM Tests (1 new)**: Dish name + cuisine clarification logic
+- **Hybrid LLM Tests (1)**: Dish name + cuisine clarification logic
 - **Meal Planning Tests (240+)**:
   - Ingredient normalizer (phrase preservation, stop tokens)
   - Ingredient categories classifier (dairy, meat, seafood, nuts, gluten)
@@ -360,19 +455,40 @@ python -m src.app.cli chat               # Interactive assistant
 ai-cooking-assistant/
 ├── src/
 │   ├── app/          # CLI and settings
+│   │   ├── cli.py           # Command-line interface
+│   │   ├── settings.py      # Configuration management
+│   │   └── constants.py     # Application constants (user IDs, etc.)
 │   ├── domain/       # Pydantic models
 │   ├── ingest/       # Data ingestion pipeline
 │   ├── retrieval/    # Vector search and retrieval
 │   ├── llm/          # LLM client (Phase 4+)
-│   ├── memory/       # User preferences (Phase 5+)
+│   ├── memory/       # User data stores (multi-user support)
+│   │   ├── user_store.py         # User account management
+│   │   ├── web_session_store.py  # Server-side web sessions
+│   │   ├── profile_store.py      # User preferences (per-user)
+│   │   ├── session_store.py      # Chat sessions (per-user)
+│   │   ├── feedback_store.py     # Recipe feedback (per-user)
+│   │   ├── history_store.py      # Cooking history (per-user)
+│   │   ├── recipe_box_store.py   # Saved recipes (per-user)
+│   │   └── meal_plan_store.py    # Meal plans (per-user)
 │   ├── chains/       # LangChain LCEL (Phase 4+)
 │   ├── planning/     # Meal planning system
+│   ├── services/     # Shared business logic
+│   │   └── chat_service.py  # Chat processing (used by CLI and web)
+│   ├── web/          # Flask web application
+│   │   ├── app.py           # Flask app factory
+│   │   ├── auth.py          # Authentication routes
+│   │   ├── chat.py          # Chat routes
+│   │   ├── config.py        # Web configuration
+│   │   ├── templates/       # Jinja2 HTML templates
+│   │   └── static/          # CSS/JS assets
 │   └── utils/        # Shared utilities (tag_loader, etc.)
 ├── config/
 │   └── models/       # Ollama Modelfiles for behavioral steering
 │       ├── Modelfile.cooking-assistant   # Main chat model
 │       └── Modelfile.intent-classifier   # Intent classification model
 ├── scripts/          # Classification and utility scripts
+│   ├── migrate_multiuser.py     # Database migration for multi-user
 │   ├── apply_ingredient_rules.py        # Deterministic vegetarian/vegan tagging
 │   ├── classify_comprehensive_tags.py   # LLM taste/occasion/cuisine classification
 │   ├── classify_taste_tags_parallel.py  # Legacy taste classification (deprecated)

@@ -16,7 +16,8 @@ Local Recipe Assistant: A fully-local, interactive dinner-planning assistant usi
 - **GPU**: PyTorch 2.11 nightly with native RTX 5090 support (CUDA 12.8)
 - **Reranker**: cross-encoder (`ms-marco-MiniLM-L-6-v2` or `BAAI/bge-reranker-base`)
 - **Framework**: LangChain (LCEL chains)
-- **Database**: SQLite for recipes and user state
+- **Database**: SQLite for recipes and user state (WAL mode for concurrency)
+- **Web Framework**: Flask with Flask-Login, Flask-WTF (CSRF), Flask-Limiter
 - **CLI**: typer
 - **Config**: pydantic-settings
 - **Testing**: pytest
@@ -96,7 +97,16 @@ Local Recipe Assistant: A fully-local, interactive dinner-planning assistant usi
   - **Natural language entry**: "plan my meals for the week", "help me plan 5 dinners"
   - **Constraint extraction**: Days, dietary restrictions, time limits, exclusions with audit trail
   - **Category exclusions**: Exclude dairy, meat, seafood, nuts, gluten categories
-  - All 545 tests passing (15 new meal planning integration tests)
+- ✅ **Multi-User Web UI**: Flask-based web interface with user authentication
+  - **User authentication**: Password hashing with werkzeug.security, session management
+  - **Multi-user data isolation**: Each user has isolated preferences, feedback, history, saved recipes
+  - **Server-side sessions**: WebSessionStore with 24h TTL, atomic message storage
+  - **Multiple sessions per user**: Plan B - users can be logged in from multiple browsers
+  - **Default user for CLI**: Fixed UUID for backward compatibility (blocked from web login)
+  - **Full feature parity**: All CLI commands available in web interface
+  - **Database migration**: scripts/migrate_multiuser.py for schema updates
+  - **SQLite WAL mode**: Concurrent read/write support for multiple users
+  - All 624 tests passing (82 new tests for multi-user web support)
 
 ## Pending Tasks
 
@@ -138,6 +148,12 @@ None - all planned features complete.
 # Install dependencies with ML packages
 pip install -e ".[ml]"
 
+# Install with web dependencies
+pip install -e ".[web]"
+
+# Install all (dev, ml, web)
+pip install -e ".[dev,ml,web]"
+
 # Install PyTorch with GPU support (recommended)
 pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128
 
@@ -152,6 +168,14 @@ python -m src.app.cli search "chicken tomato spicy"
 
 # Run CLI chat (Phase 4+)
 python -m src.app.cli chat
+
+# Run web app (multi-user)
+python -m src.web.app                    # Development (localhost only)
+ALLOW_LAN=1 python -m src.web.app        # LAN access
+gunicorn -w 2 "src.web.app:create_app()" # Production with Gunicorn
+
+# Database migration for multi-user support
+python scripts/migrate_multiuser.py      # Run once to set up multi-user tables
 
 # Phase 5 CLI commands (in chat mode) - use slash commands OR natural language:
 # /like <ref>     - Like a recipe (or "I loved that one")
@@ -174,6 +198,9 @@ pytest
 
 # Run Phase 5 integration tests
 pytest tests/test_feedback.py tests/test_history.py tests/test_feedback_integration.py -v
+
+# Run multi-user web tests
+pytest tests/test_user_store.py tests/test_web_session_store.py tests/test_multiuser_stores.py -v
 
 # Run meal planning tests
 pytest tests/test_meal_plan*.py tests/test_ingredient*.py tests/test_grocery*.py -v
@@ -219,7 +246,9 @@ python scripts/test_meal_planning_conversation.py  # Test meal planning flow (8 
 
 3. **LLM Layer** (`src/llm/`): Abstracted client interface (`LLMClient`) with Ollama implementation. Enables runtime swapping.
 
-4. **Memory System** (`src/memory/`): Multi-layer memory and personalization:
+4. **Memory System** (`src/memory/`): Multi-layer memory and personalization (all stores require `user_id`):
+   - **UserStore**: User account management with password hashing
+   - **WebSessionStore**: Server-side web session state, message history, TTL management
    - **ProfileStore**: Pinned preferences (persistent, structured in SQLite)
    - **SessionStore**: Session constraints (per dinner-planning session)
    - **RollingSummarizer**: Rolling summary (1-3 sentences updated each turn)
@@ -237,7 +266,18 @@ python scripts/test_meal_planning_conversation.py  # Test meal planning flow (8 
 
 6. **CLI App** (`src/app/`): Typer-based conversational interface.
 
-7. **Utilities** (`src/utils/`): Shared utilities for the application:
+7. **Web App** (`src/web/`): Flask-based multi-user web interface:
+   - **app.py**: Flask app factory with configuration and startup
+   - **auth.py**: Authentication routes (login, logout, password setup)
+   - **chat.py**: Chat routes with ChatService integration
+   - **config.py**: Environment-based configuration (dev/prod, LAN access)
+   - **templates/**: Jinja2 templates (login.html, chat.html, etc.)
+
+8. **Services** (`src/services/`): Shared business logic:
+   - **ChatService**: Processes chat messages, used by both CLI and web
+   - **UserContext**: Per-request user-scoped store access
+
+9. **Utilities** (`src/utils/`): Shared utilities for the application:
    - **tag_loader**: Loads valid cuisines and goals from recipe database with LRU caching
    - Provides fallback mappings for user-friendly terms (light→low-calorie, etc.)
 

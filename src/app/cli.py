@@ -785,17 +785,19 @@ async def async_chat_session():
             settings=settings
         )
 
-        # Initialize memory stores
-        profile_store = ProfileStore(db_path=settings.sqlite_db_path)
-        session_store = SessionStore(db_path=settings.sqlite_db_path)
-        feedback_store = FeedbackStore(db_path=settings.sqlite_db_path)
-        history_store = HistoryStore(db_path=settings.sqlite_db_path)
-        recipe_box_store = RecipeBoxStore(db_path=settings.sqlite_db_path)
+        # Initialize memory stores with default user for CLI backward compatibility
+        from src.app.constants import DEFAULT_USER_UUID
+
+        profile_store = ProfileStore(db_path=settings.sqlite_db_path, user_id=DEFAULT_USER_UUID)
+        session_store = SessionStore(db_path=settings.sqlite_db_path, user_id=DEFAULT_USER_UUID)
+        feedback_store = FeedbackStore(db_path=settings.sqlite_db_path, user_id=DEFAULT_USER_UUID)
+        history_store = HistoryStore(db_path=settings.sqlite_db_path, user_id=DEFAULT_USER_UUID)
+        recipe_box_store = RecipeBoxStore(db_path=settings.sqlite_db_path, user_id=DEFAULT_USER_UUID)
         summarizer = RollingSummarizer()
 
-        # Initialize meal plan store
+        # Initialize meal plan store with default user
         from src.memory.meal_plan_store import MealPlanStore
-        meal_plan_store = MealPlanStore(db_path=settings.sqlite_db_path)
+        meal_plan_store = MealPlanStore(db_path=settings.sqlite_db_path, user_id=DEFAULT_USER_UUID)
 
         # Load profile and session
         profile = profile_store.load()

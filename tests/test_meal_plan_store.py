@@ -1,9 +1,7 @@
 """Tests for meal plan storage."""
 
 import sqlite3
-import tempfile
 from datetime import date, timedelta
-from pathlib import Path
 
 import pytest
 
@@ -12,35 +10,9 @@ from src.memory.meal_plan_store import MealPlanStore
 
 
 @pytest.fixture
-def temp_db():
-    """Create a temporary database."""
-    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
-        db_path = Path(f.name)
-
-    # Create recipes table that meal_plans references
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE recipes (
-            recipe_id TEXT PRIMARY KEY,
-            title TEXT NOT NULL
-        )
-    """)
-    cursor.execute("INSERT INTO recipes VALUES ('r1', 'Chicken Stir Fry')")
-    cursor.execute("INSERT INTO recipes VALUES ('r2', 'Pasta Primavera')")
-    cursor.execute("INSERT INTO recipes VALUES ('r3', 'Beef Tacos')")
-    conn.commit()
-    conn.close()
-
-    yield db_path
-
-    db_path.unlink(missing_ok=True)
-
-
-@pytest.fixture
-def store(temp_db):
+def store(temp_db, test_user_id):
     """Create a MealPlanStore instance."""
-    return MealPlanStore(temp_db)
+    return MealPlanStore(temp_db, test_user_id)
 
 
 @pytest.fixture
@@ -92,9 +64,24 @@ def sample_plan():
 class TestMealPlanStoreInit:
     """Test store initialization."""
 
-    def test_creates_tables(self, temp_db):
+    def test_creates_tables(self, temp_db, test_user_id):
         """Store creates necessary tables on init."""
-        store = MealPlanStore(temp_db)
+        # Add extra recipes for meal plan tests (use column names for full schema)
+        conn = sqlite3.connect(temp_db)
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT OR IGNORE INTO recipes (recipe_id, title, tags) VALUES ('r1', 'Chicken Stir Fry', '[]')"
+        )
+        cursor.execute(
+            "INSERT OR IGNORE INTO recipes (recipe_id, title, tags) VALUES ('r2', 'Pasta Primavera', '[]')"
+        )
+        cursor.execute(
+            "INSERT OR IGNORE INTO recipes (recipe_id, title, tags) VALUES ('r3', 'Beef Tacos', '[]')"
+        )
+        conn.commit()
+        conn.close()
+
+        store = MealPlanStore(temp_db, test_user_id)
 
         conn = sqlite3.connect(temp_db)
         cursor = conn.cursor()
@@ -113,9 +100,9 @@ class TestMealPlanStoreInit:
 
         conn.close()
 
-    def test_creates_indexes(self, temp_db):
+    def test_creates_indexes(self, temp_db, test_user_id):
         """Store creates indexes on init."""
-        store = MealPlanStore(temp_db)
+        store = MealPlanStore(temp_db, test_user_id)
 
         conn = sqlite3.connect(temp_db)
         cursor = conn.cursor()

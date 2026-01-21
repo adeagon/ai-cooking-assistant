@@ -4,10 +4,10 @@ These tests require Ollama to be running with llama3.3:70b model.
 Run with: pytest tests/test_llm_chat_phase5.py -v -s -m llm
 """
 
-import pytest
 import sqlite3
 from io import StringIO
-from pathlib import Path
+
+import pytest
 
 from langchain_ollama import ChatOllama
 from rich.console import Console
@@ -24,6 +24,9 @@ from src.memory.history_store import HistoryStore
 from src.retrieval.recipe_cards import RecipeCardBuilder
 from src.retrieval.rerank import RecipeReranker
 from src.retrieval.retriever import RecipeRetriever
+
+# Test user ID for LLM tests
+LLM_TEST_USER_ID = "llm-test-user-00000000-0000-0000-0000-000000000001"
 
 
 @pytest.fixture(scope="module")
@@ -68,11 +71,29 @@ def feedback_db(tmp_path):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
+    # Create users table (required for multi-user stores)
+    cursor.execute("""
+        CREATE TABLE users (
+            id TEXT PRIMARY KEY,
+            username TEXT UNIQUE NOT NULL COLLATE NOCASE,
+            password_hash TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            is_active BOOLEAN DEFAULT TRUE
+        )
+    """)
+
+    # Insert test user
+    cursor.execute(
+        "INSERT INTO users (id, username, is_active) VALUES (?, ?, ?)",
+        (LLM_TEST_USER_ID, "llm_test_user", True)
+    )
+
     # Create minimal recipes table for foreign key constraint
     cursor.execute("""
         CREATE TABLE recipes (
             recipe_id TEXT PRIMARY KEY,
-            title TEXT NOT NULL
+            title TEXT NOT NULL,
+            tags TEXT DEFAULT '[]'
         )
     """)
 
@@ -100,9 +121,9 @@ class TestPhase5LLMIntegration:
         """
         console = Console()
 
-        # Set up stores
-        feedback_store = FeedbackStore(feedback_db)
-        history_store = HistoryStore(feedback_db)
+        # Set up stores with user_id
+        feedback_store = FeedbackStore(feedback_db, LLM_TEST_USER_ID)
+        history_store = HistoryStore(feedback_db, LLM_TEST_USER_ID)
 
         profile = PreferenceProfile()
         session = SessionState()
@@ -231,8 +252,8 @@ class TestPhase5LLMIntegration:
         """
         console = Console()
 
-        feedback_store = FeedbackStore(feedback_db)
-        history_store = HistoryStore(feedback_db)
+        feedback_store = FeedbackStore(feedback_db, LLM_TEST_USER_ID)
+        history_store = HistoryStore(feedback_db, LLM_TEST_USER_ID)
 
         profile = PreferenceProfile()
         session = SessionState()
@@ -341,8 +362,8 @@ class TestPhase5LLMIntegration:
         """
         console = Console()
 
-        feedback_store = FeedbackStore(feedback_db)
-        history_store = HistoryStore(feedback_db)
+        feedback_store = FeedbackStore(feedback_db, LLM_TEST_USER_ID)
+        history_store = HistoryStore(feedback_db, LLM_TEST_USER_ID)
 
         profile = PreferenceProfile()
         session = SessionState()
@@ -418,9 +439,9 @@ class TestPhase5LLMIntegration:
 
         history = history_store.get_cooking_history(limit=10)
 
-        console.print(f"[yellow bold]Cooking History:[/yellow bold]")
+        console.print("[yellow bold]Cooking History:[/yellow bold]")
         for entry in history:
-            console.print(f"  • Recipe ID: {entry.recipe_id}")
+            console.print(f"  - Recipe ID: {entry.recipe_id}")
             console.print(f"    Cooked at: {entry.cooked_at}")
             if entry.notes:
                 console.print(f"    Notes: {entry.notes}")

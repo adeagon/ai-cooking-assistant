@@ -2,41 +2,19 @@
 
 import sqlite3
 from datetime import datetime, timedelta
-from pathlib import Path
+
 import pytest
+
 from src.domain.models import CookingHistoryEntry
 from src.memory.history_store import HistoryStore
-
-
-@pytest.fixture
-def temp_db(tmp_path):
-    """Create a temporary database for testing."""
-    db_path = tmp_path / "test.db"
-
-    # Create recipes table (required for foreign key)
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE recipes (
-            recipe_id TEXT PRIMARY KEY,
-            title TEXT
-        )
-    """)
-    # Add test recipes
-    cursor.execute("INSERT INTO recipes VALUES ('123', 'Test Recipe')")
-    cursor.execute("INSERT INTO recipes VALUES ('456', 'Another Recipe')")
-    conn.commit()
-    conn.close()
-
-    return db_path
 
 
 class TestHistoryStore:
     """Test HistoryStore functionality."""
 
-    def test_initialization_creates_table(self, temp_db):
+    def test_initialization_creates_table(self, temp_db, test_user_id):
         """Test that initialization creates the cooking history table."""
-        store = HistoryStore(temp_db)
+        store = HistoryStore(temp_db, test_user_id)
 
         conn = sqlite3.connect(temp_db)
         cursor = conn.cursor()
@@ -50,16 +28,16 @@ class TestHistoryStore:
 
         conn.close()
 
-    def test_add_cooked(self, temp_db):
+    def test_add_cooked(self, temp_db, test_user_id):
         """Test recording a cooked recipe."""
-        store = HistoryStore(temp_db)
+        store = HistoryStore(temp_db, test_user_id)
 
         history_id = store.add_cooked("123")
         assert history_id > 0
 
-    def test_add_cooked_with_notes(self, temp_db):
+    def test_add_cooked_with_notes(self, temp_db, test_user_id):
         """Test recording a cooked recipe with notes."""
-        store = HistoryStore(temp_db)
+        store = HistoryStore(temp_db, test_user_id)
 
         history_id = store.add_cooked("123", notes="Delicious!")
         assert history_id > 0
@@ -69,9 +47,9 @@ class TestHistoryStore:
         assert len(history) == 1
         assert history[0].notes == "Delicious!"
 
-    def test_get_recently_cooked_ids(self, temp_db):
+    def test_get_recently_cooked_ids(self, temp_db, test_user_id):
         """Test getting recently cooked recipe IDs."""
-        store = HistoryStore(temp_db)
+        store = HistoryStore(temp_db, test_user_id)
 
         # Add some cooked recipes
         store.add_cooked("123")
@@ -81,9 +59,12 @@ class TestHistoryStore:
         assert "123" in recently_cooked
         assert "456" in recently_cooked
 
-    def test_get_recently_cooked_ids_with_date_filter(self, temp_db):
+    def test_get_recently_cooked_ids_with_date_filter(self, temp_db, test_user_id):
         """Test filtering by date range."""
-        store = HistoryStore(temp_db)
+        store = HistoryStore(temp_db, test_user_id)
+
+        # Initialize store to create table
+        store._ensure_table()
 
         conn = sqlite3.connect(temp_db)
         cursor = conn.cursor()
@@ -91,15 +72,15 @@ class TestHistoryStore:
         # Manually insert old cooked entry (15 days ago)
         old_date = datetime.now() - timedelta(days=15)
         cursor.execute("""
-            INSERT INTO cooking_history (recipe_id, cooked_at)
-            VALUES ('123', ?)
-        """, (old_date,))
+            INSERT INTO cooking_history (user_id, recipe_id, cooked_at)
+            VALUES (?, '123', ?)
+        """, (test_user_id, old_date))
 
         # Add recent entry (today)
         cursor.execute("""
-            INSERT INTO cooking_history (recipe_id, cooked_at)
-            VALUES ('456', ?)
-        """, (datetime.now(),))
+            INSERT INTO cooking_history (user_id, recipe_id, cooked_at)
+            VALUES (?, '456', ?)
+        """, (test_user_id, datetime.now()))
 
         conn.commit()
         conn.close()
@@ -114,9 +95,9 @@ class TestHistoryStore:
         assert "456" in all_cooked
         assert "123" in all_cooked
 
-    def test_get_cooking_history(self, temp_db):
+    def test_get_cooking_history(self, temp_db, test_user_id):
         """Test retrieving cooking history."""
-        store = HistoryStore(temp_db)
+        store = HistoryStore(temp_db, test_user_id)
 
         # Add multiple entries
         store.add_cooked("123")
@@ -127,9 +108,9 @@ class TestHistoryStore:
         assert len(history) == 3
         assert all(isinstance(entry, CookingHistoryEntry) for entry in history)
 
-    def test_get_cooking_history_with_limit(self, temp_db):
+    def test_get_cooking_history_with_limit(self, temp_db, test_user_id):
         """Test limit parameter for cooking history."""
-        store = HistoryStore(temp_db)
+        store = HistoryStore(temp_db, test_user_id)
 
         # Add multiple entries
         for i in range(5):
@@ -138,22 +119,22 @@ class TestHistoryStore:
         history = store.get_cooking_history(limit=3)
         assert len(history) == 3
 
-    def test_get_cooking_history_order(self, temp_db):
+    def test_get_cooking_history_order(self, temp_db, test_user_id):
         """Test that history is ordered by most recent first."""
-        store = HistoryStore(temp_db)
+        store = HistoryStore(temp_db, test_user_id)
 
         # Add entries in order
-        id1 = store.add_cooked("123")
-        id2 = store.add_cooked("456")
+        store.add_cooked("123")
+        store.add_cooked("456")
 
         history = store.get_cooking_history(limit=10)
         # Most recent should be first
         assert history[0].recipe_id == "456"
         assert history[1].recipe_id == "123"
 
-    def test_get_cooking_count(self, temp_db):
+    def test_get_cooking_count(self, temp_db, test_user_id):
         """Test getting count of times a recipe was cooked."""
-        store = HistoryStore(temp_db)
+        store = HistoryStore(temp_db, test_user_id)
 
         # Cook recipe multiple times
         store.add_cooked("123")
@@ -168,9 +149,9 @@ class TestHistoryStore:
         assert count_456 == 1
         assert count_nonexistent == 0
 
-    def test_empty_history(self, temp_db):
+    def test_empty_history(self, temp_db, test_user_id):
         """Test behavior with no cooking history."""
-        store = HistoryStore(temp_db)
+        store = HistoryStore(temp_db, test_user_id)
 
         history = store.get_cooking_history()
         recently_cooked = store.get_recently_cooked_ids()
