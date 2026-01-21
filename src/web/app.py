@@ -64,6 +64,18 @@ def create_app(config_class=None) -> Flask:
     # Ensure WAL mode
     _ensure_wal_mode(db_path)
 
+    # Initialize app context with LLM and retrieval components (expensive, done once)
+    app.app_ctx = None  # Default to None
+    try:
+        from src.services.app_context import create_app_context
+        app.app_ctx = create_app_context(db_path)
+        logger.info("App context initialized with LLM and retrieval components")
+    except Exception as e:
+        logger.warning(
+            "Failed to initialize app context - chat will work without LLM",
+            error=str(e),
+        )
+
     # Register blueprints
     from src.web.auth import auth_bp
     from src.web.chat import chat_bp

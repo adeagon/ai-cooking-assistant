@@ -4,9 +4,13 @@ import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from src.app.logging_config import get_logger
 from src.domain.models import PreferenceProfile, RecipeCard, RecipeFeedback, SavedRecipe
+
+if TYPE_CHECKING:
+    from src.services.app_context import AppContext
 
 logger = get_logger(__name__)
 
@@ -91,15 +95,23 @@ class ChatService:
     This service can be used by both web and CLI interfaces.
     """
 
-    def __init__(self, user_ctx: UserContext, last_cards: list[dict] | None = None):
+    def __init__(
+        self,
+        user_ctx: UserContext,
+        last_cards: list[dict] | None = None,
+        app_ctx: "AppContext | None" = None,
+    ):
         """Initialize chat service.
 
         Args:
             user_ctx: User context with stores
             last_cards: Previous recipe cards for reference resolution
+            app_ctx: Optional app context with LLM and retrieval components.
+                    If None, only commands will work (no LLM chat).
         """
         self.user_ctx = user_ctx
         self.last_cards = last_cards or []
+        self.app_ctx = app_ctx
 
     def process_message(self, message: str, rolling_summary: str | None = None) -> ChatResult:
         """Process a chat message and return result.
@@ -120,9 +132,290 @@ class ChatService:
         if message.startswith("/"):
             return self._handle_command(message)
 
-        # Regular chat message - for now return a placeholder
-        # TODO: Integrate with LLM retrieval chain
+        # Check for quick reference patterns before intent classification
+        # This handles "save that one", "number 1", "show me 2", etc.
+        quick_result = self._try_quick_reference(message)
+        if quick_result:
+            return quick_result
+
+        # Only try intent classification for short messages that might be commands
+        # Skip for longer messages (likely recipe queries) to improve performance
+        # Intent classification adds ~4-5 seconds and often fails for regular chat
+        if self.app_ctx and len(message) < 50:
+            # Quick keyword check - only classify if message contains command-like words
+            msg_lower = message.lower()
+            command_keywords = {
+                "like", "love", "save", "show", "dislike", "hate", "cooked", "made",
+                "history", "box", "preferences", "prefs", "rate", "star", "plan",
+                "grocery", "meal"
+            }
+            if any(kw in msg_lower for kw in command_keywords):
+                intent_result = self._try_intent_classification(message)
+                if intent_result:
+                    return intent_result
+
+        # Regular chat message - process through LLM
         return self._handle_chat_message(message, rolling_summary)
+
+    def _try_quick_reference(self, message: str) -> ChatResult | None:
+        """Try to handle quick recipe reference patterns.
+
+        Handles patterns like:
+        - "save that", "save it", "save the first one"
+        - "like that", "like it", "like number 1"
+        - "show me 1", "show number 2", "recipe 3"
+        - "the first one", "number 1", "#1"
+
+        Args:
+            message: User's message
+
+        Returns:
+            ChatResult if pattern matched and handled, None otherwise
+        """
+        if not self.last_cards:
+            logger.debug("Quick reference: no cards available")
+            return None
+
+        msg_lower = message.lower().strip()
+        logger.debug("Quick reference check", message=msg_lower, card_count=len(self.last_cards))
+
+        # Patterns for different actions
+        save_patterns = ["save that", "save it", "save this", "save the first", "save the second", "save the third", "save number", "save #"]
+        like_patterns = ["like that", "like it", "like this", "like the first", "like the second", "love that", "love it", "loved it", "loved that", "like number", "like #"]
+        dislike_patterns = ["dislike that", "dislike it", "didn't like", "don't like", "dislike the first", "dislike number"]
+        show_patterns = ["show me", "show that", "show it", "show the first", "show the second", "show number", "recipe for number", "give me the recipe", "give me recipe", "what's in number"]
+        cooked_patterns = ["made that", "made it", "cooked that", "cooked it", "i made the first", "cooked number"]
+
+        # Reference patterns (numbers)
+        ref = None
+
+        # First check for ordinal words - these are most specific
+        ordinal_map = {
+            "first": "1", "1st": "1",
+            "second": "2", "2nd": "2",
+            "third": "3", "3rd": "3",
+            "fourth": "4", "4th": "4",
+            "fifth": "5", "5th": "5",
+            "sixth": "6", "6th": "6",
+        }
+        for word, num in ordinal_map.items():
+            if word in msg_lower:
+                ref = num
+                logger.debug("Quick reference: matched ordinal", word=word, ref=ref)
+                break
+
+        # Check for explicit number patterns: "number 1", "#1", "recipe 1"
+        if not ref:
+            num_match = re.search(r'(?:number\s*|#|recipe\s*)(\d+)', msg_lower)
+            if num_match:
+                ref = num_match.group(1)
+                logger.debug("Quick reference: matched number pattern", ref=ref)
+
+        # Check for standalone digit at word boundary
+        # Only match in SHORT messages to avoid false positives like "5 nights. we have chicken..."
+        if not ref and len(msg_lower) < 20:
+            digit_match = re.search(r'\b(\d)\b', msg_lower)
+            if digit_match:
+                ref = digit_match.group(1)
+                logger.debug("Quick reference: matched standalone digit", ref=ref)
+
+        # Check for "that one", "it", "this" -> refers to first card
+        # But avoid false positives like "that was"
+        if not ref:
+            # More precise patterns to avoid false positives
+            if re.search(r'\bthat one\b', msg_lower):
+                ref = "1"
+            elif re.search(r'\bthis one\b', msg_lower):
+                ref = "1"
+            elif msg_lower.endswith(" it") or " it " in msg_lower or msg_lower == "it":
+                ref = "1"
+            elif msg_lower.endswith(" that") and "what" not in msg_lower:
+                ref = "1"
+            if ref:
+                logger.debug("Quick reference: matched pronoun pattern", ref=ref)
+
+        if not ref:
+            logger.debug("Quick reference: no reference found")
+            return None
+
+        logger.debug("Quick reference: checking action patterns", ref=ref)
+
+        # Determine action
+        if any(p in msg_lower for p in save_patterns):
+            logger.debug("Quick reference: matched save pattern")
+            return self._handle_save(ref)
+        elif any(p in msg_lower for p in like_patterns):
+            logger.debug("Quick reference: matched like pattern")
+            return self._handle_like(ref)
+        elif any(p in msg_lower for p in dislike_patterns):
+            logger.debug("Quick reference: matched dislike pattern")
+            return self._handle_dislike(ref)
+        elif any(p in msg_lower for p in cooked_patterns):
+            logger.debug("Quick reference: matched cooked pattern")
+            return self._handle_cooked(ref)
+        elif any(p in msg_lower for p in show_patterns):
+            logger.debug("Quick reference: matched show pattern")
+            return self._handle_show(ref)
+
+        # If we have a reference but no clear action verb, default to show
+        # This handles "the first one", "number 1", etc.
+        logger.debug("Quick reference: defaulting to show", ref=ref)
+        return self._handle_show(ref)
+
+    def _try_intent_classification(self, message: str) -> ChatResult | None:
+        """Try to classify message as an intent command.
+
+        Args:
+            message: User's message
+
+        Returns:
+            ChatResult if intent was handled, None otherwise
+        """
+        if not self.app_ctx:
+            return None
+
+        try:
+            from src.chains.intent_classifier import classify_intent
+
+            # Convert last_cards dicts to RecipeCard objects for classifier
+            cards_for_classifier = []
+            for card in self.last_cards:
+                cards_for_classifier.append(RecipeCard(
+                    recipe_id=card.get("recipe_id") or card.get("id", ""),
+                    title=card.get("title", ""),
+                    tags=card.get("tags", []),
+                    key_ingredients=card.get("key_ingredients", []),
+                    one_sentence_summary=card.get("one_sentence_summary", ""),
+                    why_match=card.get("why_match", ""),
+                ))
+
+            intent_result = classify_intent(
+                message,
+                cards_for_classifier,
+                self.app_ctx.intent_llm,
+            )
+
+            # Skip if conversation or low confidence
+            if intent_result.intent == "conversation" or intent_result.confidence == "low":
+                return None
+
+            # Execute intent
+            return self._execute_intent(intent_result)
+
+        except Exception as e:
+            logger.warning("Intent classification failed", error=str(e))
+            return None
+
+    def _execute_intent(self, intent_result) -> ChatResult | None:
+        """Execute a detected intent.
+
+        Args:
+            intent_result: IntentClassification object
+
+        Returns:
+            ChatResult if intent was executed, None otherwise
+        """
+        intent = intent_result.intent
+        ref = intent_result.recipe_reference
+
+        # Handle stateless commands
+        if intent == "history":
+            return ChatResult(
+                response=self._get_history_text(),
+                command_executed=True,
+            )
+
+        if intent == "box":
+            return ChatResult(
+                response=self._get_recipe_box_text(),
+                command_executed=True,
+            )
+
+        if intent == "preferences":
+            return ChatResult(
+                response=self._get_preferences_text(),
+                command_executed=True,
+            )
+
+        # Handle meal planning intents
+        if intent == "mealplan":
+            return self._handle_mealplan("")
+
+        if intent == "show_plan":
+            return self._handle_show_plan()
+
+        if intent == "grocery_list":
+            return self._handle_grocery()
+
+        # Handle recipe-based commands
+        if not ref:
+            return None
+
+        result = self._resolve_recipe_reference(ref)
+        if not result:
+            return ChatResult(
+                response=f"Recipe not found: {ref}",
+                command_executed=True,
+            )
+
+        recipe_id, title = result
+
+        if intent == "like":
+            self.user_ctx.feedback_store.add_feedback(RecipeFeedback(
+                recipe_id=recipe_id,
+                feedback_type="like",
+            ))
+            return ChatResult(
+                response=f"Liked: **{title}**",
+                command_executed=True,
+            )
+
+        if intent == "dislike":
+            self.user_ctx.feedback_store.add_feedback(RecipeFeedback(
+                recipe_id=recipe_id,
+                feedback_type="dislike",
+            ))
+            return ChatResult(
+                response=f"Disliked: **{title}**",
+                command_executed=True,
+            )
+
+        if intent == "rate":
+            rating = intent_result.rating_value or 3
+            self.user_ctx.feedback_store.add_feedback(RecipeFeedback(
+                recipe_id=recipe_id,
+                feedback_type="rate",
+                rating=rating,
+            ))
+            return ChatResult(
+                response=f"Rated **{title}**: {rating}/5",
+                command_executed=True,
+            )
+
+        if intent == "save":
+            try:
+                self.user_ctx.recipe_box_store.save_recipe(recipe_id, title)
+                return ChatResult(
+                    response=f"Saved to Recipe Box: **{title}**",
+                    command_executed=True,
+                )
+            except Exception:
+                return ChatResult(
+                    response=f"Recipe already in your box: **{title}**",
+                    command_executed=True,
+                )
+
+        if intent == "cooked":
+            self.user_ctx.history_store.add_cooked(recipe_id)
+            return ChatResult(
+                response=f"Marked as cooked: **{title}**",
+                command_executed=True,
+            )
+
+        if intent == "show":
+            return self._handle_show(ref)
+
+        return None
 
     def _handle_command(self, message: str) -> ChatResult:
         """Handle slash commands.
@@ -220,10 +513,8 @@ class ChatService:
 
         # /mealplan - start meal planning
         if message_lower.startswith("/mealplan"):
-            return ChatResult(
-                response="Meal planning requires LLM integration. Coming soon!",
-                command_executed=True,
-            )
+            input_text = message[9:].strip()  # Get text after /mealplan
+            return self._handle_mealplan(input_text)
 
         # Unknown command
         return ChatResult(
@@ -241,20 +532,95 @@ class ChatService:
         Returns:
             ChatResult with LLM response
         """
-        # TODO: Integrate with LLM retrieval chain
-        # For now, return a helpful placeholder
-        return ChatResult(
-            response=(
-                f"I received your message: \"{message}\"\n\n"
-                "Full recipe search and LLM integration coming in a future update.\n\n"
-                "For now, try these commands:\n"
-                "- `/box` - View your saved recipes\n"
-                "- `/history` - View your cooking history\n"
-                "- `/prefs` - View your preferences\n"
-                "- `/commands` - See all available commands"
-            ),
-            command_executed=False,
-        )
+        # If no app context, return placeholder
+        if not self.app_ctx:
+            return ChatResult(
+                response=(
+                    f"I received your message: \"{message}\"\n\n"
+                    "Full recipe search and LLM integration coming in a future update.\n\n"
+                    "For now, try these commands:\n"
+                    "- `/box` - View your saved recipes\n"
+                    "- `/history` - View your cooking history\n"
+                    "- `/prefs` - View your preferences\n"
+                    "- `/commands` - See all available commands"
+                ),
+                command_executed=False,
+            )
+
+        try:
+            from src.chains.chat_chain import build_chat_chain
+            from src.chains.extractors import ConstraintExtractor
+            from src.memory.summarizer import RollingSummarizer
+            from src.domain.models import SessionState
+
+            # Load user profile (cached per-request via lazy property)
+            profile = self.user_ctx.profile_store.load()
+
+            # Use a default SessionState - we derive context from rolling_summary instead
+            # This avoids creating new CLI sessions for each web request
+            session = SessionState()
+
+            # Compute exclusion set from feedback and history
+            exclude_ids = (
+                self.user_ctx.feedback_store.get_liked_recipe_ids(limit=20) |
+                self.user_ctx.feedback_store.get_disliked_recipe_ids() |
+                self.user_ctx.history_store.get_recently_cooked_ids(days=7)
+            )
+
+            # Build the chat chain
+            chain = build_chat_chain(
+                llm=self.app_ctx.llm,
+                retrieval_chain=self.app_ctx.retrieval_chain,
+                profile=profile,
+                session=session,
+                rolling_summary=rolling_summary or "",
+                exclude_recipe_ids=exclude_ids,
+                llm_clarification=self.app_ctx.llm_clarification,
+            )
+
+            # Invoke chain (synchronous)
+            result = chain.invoke({"user_input": message})
+
+            # Extract response and cards
+            response = result.get("response", "")
+            cards = result.get("cards", [])
+
+            # Update rolling summary based on extracted constraints
+            summarizer = RollingSummarizer()
+            extractor = ConstraintExtractor()
+            constraints = extractor.extract_constraints(message)
+            new_summary = summarizer.update_summary(rolling_summary or "", constraints, message)
+
+            logger.info(
+                "Chat message processed via LLM",
+                user_id=self.user_ctx.user_id,
+                message_length=len(message),
+                response_length=len(response),
+                num_cards=len(cards),
+            )
+
+            return ChatResult(
+                response=response,
+                cards=cards,
+                rolling_summary=new_summary,
+                command_executed=False,
+            )
+
+        except Exception as e:
+            logger.exception("Error processing chat message", error=str(e))
+
+            # Check for common errors
+            error_msg = str(e).lower()
+            if "connection" in error_msg or "connect" in error_msg:
+                return ChatResult(
+                    response="Unable to connect to the LLM service (Ollama). Please ensure Ollama is running.",
+                    command_executed=False,
+                )
+
+            return ChatResult(
+                response=f"Sorry, an error occurred while processing your request: {e}",
+                command_executed=False,
+            )
 
     def _resolve_recipe_reference(self, ref: str) -> tuple[str, str] | None:
         """Resolve recipe reference to (recipe_id, title).
@@ -281,9 +647,28 @@ class ChatService:
 
         # Try by name (fuzzy match)
         ref_lower = ref.lower()
+
+        # Strip articles for matching
+        def strip_articles(text):
+            words = text.split()
+            if words and words[0].lower() in ("the", "a", "an"):
+                return " ".join(words[1:])
+            return text
+
+        ref_normalized = strip_articles(ref_lower)
+
         for card in self.last_cards:
             title = card.get("title", "").lower()
-            if ref_lower in title or title in ref_lower:
+            title_normalized = strip_articles(title)
+
+            # Check if ref is in title OR title is in ref
+            if ref_normalized in title_normalized or title_normalized in ref_normalized:
+                return (card.get("recipe_id") or card.get("id"), card.get("title", ""))
+
+            # Also check word-subset matching
+            ref_words = set(ref_normalized.split())
+            title_words = set(title_normalized.split())
+            if ref_words and ref_words.issubset(title_words):
                 return (card.get("recipe_id") or card.get("id"), card.get("title", ""))
 
         return None
@@ -367,9 +752,23 @@ class ChatService:
             return "No cooking history yet. Use `/cooked <ref>` to track what you make."
 
         lines = ["**Recent Cooking History:**\n"]
+
+        # Try to get recipe titles
         for entry in history:
             date_str = entry.cooked_at.strftime("%m/%d") if entry.cooked_at else ""
-            lines.append(f"- {entry.recipe_id} ({date_str})")
+            title = entry.recipe_id  # Default to ID
+
+            # Try to look up title if we have app context
+            if self.app_ctx:
+                try:
+                    from src.ingest.build_db import get_recipe_by_id
+                    recipe = get_recipe_by_id(self.app_ctx.db_path, entry.recipe_id)
+                    if recipe:
+                        title = recipe.title
+                except Exception:
+                    pass
+
+            lines.append(f"- {title} ({date_str})")
 
         return "\n".join(lines)
 
@@ -555,16 +954,61 @@ class ChatService:
         result = self._resolve_recipe_reference(ref)
         if not result:
             return ChatResult(
-                response=f"Recipe not found: {ref}. Full recipe display requires database lookup.",
+                response=f"Recipe not found: {ref}",
                 command_executed=True,
             )
 
         recipe_id, title = result
-        # TODO: Look up full recipe from database
+
+        # Try to get full recipe from database
+        if self.app_ctx:
+            try:
+                from src.ingest.build_db import get_recipe_by_id
+                recipe = get_recipe_by_id(self.app_ctx.db_path, recipe_id)
+                if recipe:
+                    return ChatResult(
+                        response=self._format_full_recipe(recipe),
+                        command_executed=True,
+                    )
+            except Exception as e:
+                logger.warning("Failed to load recipe", error=str(e))
+
         return ChatResult(
-            response=f"Recipe: **{title}** (ID: {recipe_id})\n\nFull recipe display coming soon.",
+            response=f"Recipe: **{title}** (ID: {recipe_id})\n\nFull recipe display requires database lookup.",
             command_executed=True,
         )
+
+    def _format_full_recipe(self, recipe) -> str:
+        """Format a recipe for display.
+
+        Args:
+            recipe: Recipe object from database
+
+        Returns:
+            Formatted recipe string
+        """
+        lines = [f"**{recipe.title}**\n"]
+
+        if recipe.rating_avg and recipe.rating_count:
+            lines.append(f"Rating: {recipe.rating_avg:.1f}/5 ({recipe.rating_count} reviews)")
+
+        if recipe.minutes:
+            lines.append(f"Time: {recipe.minutes} minutes")
+
+        lines.append("")
+
+        if recipe.ingredients:
+            lines.append("**Ingredients:**")
+            for ing in recipe.ingredients:
+                lines.append(f"- {ing}")
+            lines.append("")
+
+        if recipe.instructions:
+            lines.append("**Instructions:**")
+            for i, step in enumerate(recipe.instructions, 1):
+                lines.append(f"{i}. {step}")
+
+        return "\n".join(lines)
 
     def _handle_addpref(self, args: str) -> ChatResult:
         """Handle /addpref command."""
@@ -650,21 +1094,178 @@ class ChatService:
             command_executed=True,
         )
 
-    def _handle_show_plan(self) -> ChatResult:
-        """Handle /plan command."""
-        plan = self.user_ctx.meal_plan_store.get_active_plan()
+    def _handle_mealplan(self, input_text: str) -> ChatResult:
+        """Handle /mealplan command to generate a meal plan.
 
-        if not plan:
+        Args:
+            input_text: Optional constraints (e.g., "5 vegetarian dinners")
+
+        Returns:
+            ChatResult with generated meal plan
+        """
+        from collections import defaultdict
+        from datetime import date, timedelta
+
+        try:
+            from src.planning.constraint_extractor import MealPlanConstraintExtractor
+            from src.planning.meal_planner import MealPlanner
+            from src.domain.models import MealPlan
+            from src.ingest.build_db import get_all_recipes
+
+            # Get database path
+            db_path = self.user_ctx.db_path
+            if self.app_ctx:
+                db_path = self.app_ctx.db_path
+
+            # Load user profile
+            profile = self.user_ctx.profile_store.load()
+
+            # Extract constraints from input
+            extractor = MealPlanConstraintExtractor(db_path=db_path)
+            constraints = extractor.extract(
+                input_text if input_text else "plan dinners",
+                profile=profile
+            )
+
+            # Build response with extracted constraints
+            lines = ["**Meal Planning**\n"]
+            lines.append(f"Planning {constraints.days} {constraints.meal_types[0] if constraints.meal_types else 'dinner'}(s)")
+
+            if constraints.dietary.value != "none":
+                lines.append(f"- Diet: {constraints.dietary.value}")
+            if constraints.max_prep_time:
+                lines.append(f"- Max time: {constraints.max_prep_time} minutes")
+            if constraints.excluded_categories:
+                lines.append(f"- Excluding: {', '.join(c.value for c in constraints.excluded_categories)}")
+            if constraints.excluded_tags:
+                lines.append(f"- No: {', '.join(constraints.excluded_tags)}")
+
+            lines.append("\nGenerating plan...")
+
+            # Get saved recipes from Recipe Box
+            saved_recipes = self.user_ctx.recipe_box_store.get_saved_recipes(limit=100)
+            box_recipe_ids = {r.recipe_id for r in saved_recipes}
+
+            # Fetch candidate recipes from database
+            all_recipes = get_all_recipes(db_path, limit=500)
+
+            if not all_recipes:
+                return ChatResult(
+                    response="No recipes found in database. Please ensure the database is set up.",
+                    command_executed=True,
+                )
+
+            # Initialize planner and generate plan
+            planner = MealPlanner()
+            meals, metrics = planner.generate_plan(
+                all_recipes, constraints, profile, box_recipe_ids=box_recipe_ids
+            )
+
+            if not meals:
+                return ChatResult(
+                    response="No recipes found matching your criteria. Try relaxing some constraints.",
+                    command_executed=True,
+                )
+
+            # Create meal plan object
+            start_date = constraints.start_date or date.today()
+            end_date = start_date + timedelta(days=constraints.days - 1)
+
+            plan = MealPlan(
+                start_date=start_date,
+                end_date=end_date,
+                meal_types=constraints.meal_types or ["dinner"],
+                status="draft",
+                constraints=constraints.model_dump(exclude={"extraction_sources"}),
+                metrics=metrics,
+                meals=meals
+            )
+
+            # Save plan
+            plan_id = self.user_ctx.meal_plan_store.create_plan(plan)
+            plan.id = plan_id
+
+            # Build response
+            lines = [f"**Meal Plan Generated** (ID: {plan_id})\n"]
+
+            # Group meals by day
+            meals_by_day = defaultdict(list)
+            for meal in meals:
+                meals_by_day[meal.day].append(meal)
+
+            for day in sorted(meals_by_day.keys()):
+                day_meals = meals_by_day[day]
+                day_str = day.strftime("%A, %b %d")
+                lines.append(f"**{day_str}**")
+                for meal in day_meals:
+                    source_icon = "📦" if meal.source == "box" else "🔍"
+                    lines.append(f"  {source_icon} {meal.title}")
+
+            # Show metrics
+            lines.append(f"\n*Metrics:*")
+            lines.append(f"- Unique ingredients: {metrics.unique_ingredients}")
+            lines.append(f"- Ingredient overlap: {metrics.overlap_ratio:.0%}")
+            lines.append(f"- From Recipe Box: {metrics.box_recipe_count}, Discovery: {metrics.discovery_recipe_count}")
+
+            if metrics.top_shared_ingredients:
+                shared = ", ".join(f"{ing}" for ing, _ in metrics.top_shared_ingredients[:5])
+                lines.append(f"- Common ingredients: {shared}")
+
+            lines.append(f"\n*Use `/plan` to view, `/grocery` for shopping list*")
+
             return ChatResult(
-                response="No active meal plan. Use `/mealplan` to create one.",
+                response="\n".join(lines),
                 command_executed=True,
             )
 
-        lines = [f"**Meal Plan: {plan.name or 'Untitled'}**\n"]
-        lines.append(f"*{plan.start_date} to {plan.end_date}*\n")
+        except Exception as e:
+            logger.exception("Meal plan generation error", error=str(e))
+            return ChatResult(
+                response=f"Error generating meal plan: {e}",
+                command_executed=True,
+            )
 
-        for meal in sorted(plan.meals, key=lambda m: (m.day, m.position)):
-            lines.append(f"- {meal.day.strftime('%a %m/%d')}: {meal.title}")
+    def _handle_show_plan(self) -> ChatResult:
+        """Handle /plan command."""
+        from collections import defaultdict
+
+        # Get most recent plan
+        plans = self.user_ctx.meal_plan_store.get_recent_plans(limit=1)
+        if not plans:
+            return ChatResult(
+                response="No meal plans found. Use `/mealplan` to create one.",
+                command_executed=True,
+            )
+
+        plan = plans[0]
+
+        lines = [f"**Meal Plan** (ID: {plan.id})"]
+        lines.append(f"Status: {plan.status}")
+        lines.append(f"Period: {plan.start_date} to {plan.end_date}\n")
+
+        if not plan.meals:
+            lines.append("*Plan has no meals yet.*")
+            return ChatResult(
+                response="\n".join(lines),
+                command_executed=True,
+            )
+
+        # Group meals by day
+        meals_by_day = defaultdict(list)
+        for meal in plan.meals:
+            meals_by_day[meal.day].append(meal)
+
+        for day in sorted(meals_by_day.keys()):
+            day_meals = meals_by_day[day]
+            day_str = day.strftime("%A, %b %d")
+            lines.append(f"**{day_str}**")
+            for meal in day_meals:
+                source_icon = "📦" if meal.source == "box" else "🔍"
+                lines.append(f"  {source_icon} {meal.title}")
+
+        if plan.metrics:
+            lines.append(f"\n*Metrics: {plan.metrics.unique_ingredients} ingredients, "
+                        f"{plan.metrics.overlap_ratio:.0%} overlap*")
 
         return ChatResult(
             response="\n".join(lines),
@@ -673,16 +1274,74 @@ class ChatService:
 
     def _handle_grocery(self) -> ChatResult:
         """Handle /grocery command."""
-        plan = self.user_ctx.meal_plan_store.get_active_plan()
+        try:
+            from src.planning.grocery_list import GroceryListGenerator
+            from src.ingest.build_db import get_recipe_by_id
 
-        if not plan:
+            # Get database path
+            db_path = self.user_ctx.db_path
+            if self.app_ctx:
+                db_path = self.app_ctx.db_path
+
+            # Get most recent plan
+            plans = self.user_ctx.meal_plan_store.get_recent_plans(limit=1)
+            if not plans:
+                return ChatResult(
+                    response="No meal plans found. Use `/mealplan` to create one first.",
+                    command_executed=True,
+                )
+
+            plan = plans[0]
+            if not plan.meals:
+                return ChatResult(
+                    response="Your meal plan has no meals yet.",
+                    command_executed=True,
+                )
+
+            # Fetch full recipes
+            recipes = {}
+            for meal in plan.meals:
+                recipe = get_recipe_by_id(db_path, meal.recipe_id)
+                if recipe:
+                    recipes[meal.recipe_id] = recipe
+
+            if not recipes:
+                return ChatResult(
+                    response="Could not load recipes for the meal plan.",
+                    command_executed=True,
+                )
+
+            # Generate grocery list
+            generator = GroceryListGenerator()
+            grocery_list = generator.generate(plan, recipes, exclude_pantry_staples=True)
+
+            if not grocery_list.items:
+                return ChatResult(
+                    response="No items in grocery list (all ingredients may be pantry staples).",
+                    command_executed=True,
+                )
+
+            # Format for display
+            formatted = generator.format_for_display(
+                grocery_list, show_recipes=True, group_by_category=True
+            )
+
+            lines = [f"**Grocery List**"]
+            lines.append(f"For meal plan {plan.start_date} to {plan.end_date}\n")
+            lines.append(formatted)
+
+            # Add summary
+            summary = generator.get_summary(grocery_list)
+            lines.append(f"\n*{summary['total_items']} items across {summary['category_count']} categories*")
+
             return ChatResult(
-                response="No active meal plan. Use `/mealplan` to create one first.",
+                response="\n".join(lines),
                 command_executed=True,
             )
 
-        # TODO: Generate actual grocery list from plan
-        return ChatResult(
-            response=f"Grocery list for meal plan '{plan.name or 'Untitled'}' coming soon.",
-            command_executed=True,
-        )
+        except Exception as e:
+            logger.exception("Grocery list generation error", error=str(e))
+            return ChatResult(
+                response=f"Error generating grocery list: {e}",
+                command_executed=True,
+            )

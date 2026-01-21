@@ -64,18 +64,21 @@ class RollingSummarizer:
             # Simple parsing: split by "; " or ". "
             existing_points = [p.strip() for p in old_summary.replace(". ", "; ").split("; ")]
 
-        # Merge new points, avoiding duplicates
+        # Merge: existing points first, then new points
+        # New points will override old ones with same category
         all_points = existing_points + points
 
-        # Deduplicate by keeping first occurrence
+        # Deduplicate by keeping LAST occurrence (new constraints override old)
+        # Process in reverse order to find last occurrence, then reverse back
         seen = set()
         unique_points = []
-        for point in all_points:
+        for point in reversed(all_points):
             # Get point category (e.g., "ingredients:", "time:")
             category = point.split(":")[0] if ":" in point else point
             if category not in seen:
                 seen.add(category)
                 unique_points.append(point)
+        unique_points.reverse()  # Restore original order
 
         # Keep only last MAX_POINTS
         final_points = unique_points[-self.MAX_POINTS :]

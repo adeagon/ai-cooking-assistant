@@ -11,6 +11,7 @@ from src.memory import _sqlite_compat  # noqa: F401
 
 from src.app.logging_config import get_logger
 from src.domain.models import MealPlan, PlannedMeal, PlanMetrics
+from src.memory._table_init import is_table_initialized, mark_table_initialized
 
 logger = get_logger(__name__)
 
@@ -46,7 +47,13 @@ class MealPlanStore:
         return conn
 
     def _ensure_tables(self) -> None:
-        """Create meal plan tables and indexes if they don't exist."""
+        """Create meal plan tables and indexes if they don't exist.
+
+        Uses module-level tracking to avoid redundant CREATE TABLE calls.
+        """
+        if is_table_initialized("meal_plans"):
+            return
+
         conn = self._get_connection()
         cursor = conn.cursor()
 
@@ -108,6 +115,7 @@ class MealPlanStore:
         conn.commit()
         conn.close()
 
+        mark_table_initialized("meal_plans")
         logger.info("Meal plan tables ensured", db_path=str(self.db_path))
 
     def create_plan(self, plan: MealPlan) -> int:

@@ -561,7 +561,7 @@ async def handle_mealplan_command(
         )
 
         # Save plan
-        plan_id = meal_plan_store.save_plan(plan)
+        plan_id = meal_plan_store.create_plan(plan)
         plan.id = plan_id
 
         # Display the plan

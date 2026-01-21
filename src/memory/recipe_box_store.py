@@ -9,6 +9,7 @@ from src.memory import _sqlite_compat  # noqa: F401
 
 from src.app.logging_config import get_logger
 from src.domain.models import SavedRecipe
+from src.memory._table_init import is_table_initialized, mark_table_initialized
 
 logger = get_logger(__name__)
 
@@ -48,7 +49,11 @@ class RecipeBoxStore:
 
         Note: The full schema migration is handled by scripts/migrate_multiuser.py.
         This method ensures backward compatibility for fresh databases.
+        Uses module-level tracking to avoid redundant CREATE TABLE calls.
         """
+        if is_table_initialized("saved_recipes"):
+            return
+
         conn = self._get_connection()
         cursor = conn.cursor()
 
@@ -78,6 +83,8 @@ class RecipeBoxStore:
 
         conn.commit()
         conn.close()
+
+        mark_table_initialized("saved_recipes")
 
         logger.info("Saved recipes table ensured", db_path=str(self.db_path))
 

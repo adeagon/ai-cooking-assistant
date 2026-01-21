@@ -4,7 +4,7 @@ import json
 import sqlite3
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # Register datetime adapters for Python 3.12+ compatibility
@@ -12,8 +12,22 @@ from src.memory import _sqlite_compat  # noqa: F401
 
 from src.app.constants import MAX_MESSAGES_PER_SESSION, WEB_SESSION_TTL_HOURS
 from src.app.logging_config import get_logger
+from src.memory._table_init import is_table_initialized, mark_table_initialized
 
 logger = get_logger(__name__)
+
+
+def _utc_to_local(utc_dt: datetime | None) -> datetime | None:
+    """Convert UTC datetime to local timezone.
+
+    SQLite CURRENT_TIMESTAMP stores UTC. This converts to local time for display.
+    """
+    if utc_dt is None:
+        return None
+    # Treat the naive datetime as UTC
+    utc_aware = utc_dt.replace(tzinfo=timezone.utc)
+    # Convert to local timezone
+    return utc_aware.astimezone()
 
 
 @dataclass
@@ -73,7 +87,11 @@ class WebSessionStore:
 
         Note: The full schema migration is handled by scripts/migrate_multiuser.py.
         This method ensures backward compatibility for fresh databases.
+        Uses module-level tracking to avoid redundant CREATE TABLE calls.
         """
+        if is_table_initialized("web_sessions"):
+            return
+
         conn = self._get_connection()
         cursor = conn.cursor()
 
@@ -110,6 +128,7 @@ class WebSessionStore:
         conn.commit()
         conn.close()
 
+        mark_table_initialized("web_sessions")
         logger.info("Web session tables ensured", db_path=str(self.db_path))
 
     def create(self, user_id: str) -> str:
@@ -371,7 +390,7 @@ class WebSessionStore:
                 web_session_id=row["web_session_id"],
                 role=row["role"],
                 content=row["content"],
-                created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else None,
+                created_at=_utc_to_local(datetime.fromisoformat(row["created_at"])) if row["created_at"] else None,
             )
             for row in cursor.fetchall()
         ]

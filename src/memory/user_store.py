@@ -10,6 +10,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from src.app.constants import DEFAULT_USER_USERNAME
 from src.app.logging_config import get_logger
+from src.memory._table_init import is_table_initialized, mark_table_initialized
 
 logger = get_logger(__name__)
 
@@ -50,7 +51,11 @@ class UserStore:
 
         Note: The full schema migration is handled by scripts/migrate_multiuser.py.
         This method ensures backward compatibility for fresh databases.
+        Uses module-level tracking to avoid redundant CREATE TABLE calls.
         """
+        if is_table_initialized("users"):
+            return
+
         conn = self._get_connection()
         cursor = conn.cursor()
 
@@ -69,6 +74,7 @@ class UserStore:
         conn.commit()
         conn.close()
 
+        mark_table_initialized("users")
         logger.info("Users table ensured", db_path=str(self.db_path))
 
     def create_user(self, username: str, password: str | None = None) -> User:

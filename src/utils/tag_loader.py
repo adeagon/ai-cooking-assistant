@@ -79,9 +79,15 @@ GOAL_FALLBACKS = {
 }
 
 
-@lru_cache(maxsize=1)
+# Module-level cache for cuisines and goals (loaded once per process)
+_cuisines_cache: set[str] | None = None
+_goals_cache: set[str] | None = None
+
+
 def load_cuisines_from_db(db_path: str | None = None) -> set[str]:
     """Load cuisines that actually exist in recipes.
+
+    Uses module-level caching to avoid repeated database lookups.
 
     Args:
         db_path: Path to SQLite database. If None, uses default from Settings.
@@ -89,10 +95,16 @@ def load_cuisines_from_db(db_path: str | None = None) -> set[str]:
     Returns:
         Set of cuisine tag strings (e.g., {"asian", "italian", "korean", ...})
     """
+    global _cuisines_cache
+    if _cuisines_cache is not None:
+        return _cuisines_cache
+
     if db_path is None:
         from src.app.settings import Settings
 
         db_path = str(Settings().sqlite_db_path)
+    else:
+        db_path = str(db_path)  # Normalize Path to string
 
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
@@ -109,12 +121,14 @@ def load_cuisines_from_db(db_path: str | None = None) -> set[str]:
     conn.close()
 
     logger.info("Loaded cuisines from DB", count=len(found))
+    _cuisines_cache = found
     return found
 
 
-@lru_cache(maxsize=1)
 def load_goals_from_db(db_path: str | None = None) -> set[str]:
     """Load goal tags that actually exist in recipes.
+
+    Uses module-level caching to avoid repeated database lookups.
 
     Args:
         db_path: Path to SQLite database. If None, uses default from Settings.
@@ -122,10 +136,16 @@ def load_goals_from_db(db_path: str | None = None) -> set[str]:
     Returns:
         Set of goal tag strings (e.g., {"savory", "healthy", "spicy", ...})
     """
+    global _goals_cache
+    if _goals_cache is not None:
+        return _goals_cache
+
     if db_path is None:
         from src.app.settings import Settings
 
         db_path = str(Settings().sqlite_db_path)
+    else:
+        db_path = str(db_path)  # Normalize Path to string
 
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
@@ -142,6 +162,7 @@ def load_goals_from_db(db_path: str | None = None) -> set[str]:
     conn.close()
 
     logger.info("Loaded goals from DB", count=len(found))
+    _goals_cache = found
     return found
 
 

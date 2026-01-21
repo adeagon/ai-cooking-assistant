@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from src.app.settings import Settings
+from src.memory._table_init import reset_initialized_tables
 
 # Test user ID for store tests (stable UUID for deterministic tests)
 TEST_USER_ID = "test-user-00000000-0000-0000-0000-000000000001"
@@ -33,6 +34,9 @@ def temp_db(tmp_path):
 
     This fixture creates the minimal schema needed for multi-user stores.
     """
+    # Reset table initialization tracking for each test
+    reset_initialized_tables()
+
     db_path = tmp_path / "test.db"
 
     conn = sqlite3.connect(db_path)

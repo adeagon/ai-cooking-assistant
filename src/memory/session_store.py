@@ -8,6 +8,7 @@ from pathlib import Path
 
 from src.app.logging_config import get_logger
 from src.domain.models import SessionState
+from src.memory._table_init import is_table_initialized, mark_table_initialized
 
 logger = get_logger(__name__)
 
@@ -48,7 +49,11 @@ class SessionStore:
 
         Note: The full schema migration is handled by scripts/migrate_multiuser.py.
         This method ensures backward compatibility for fresh databases.
+        Uses module-level tracking to avoid redundant CREATE TABLE calls.
         """
+        if is_table_initialized("sessions"):
+            return
+
         conn = self._get_connection()
         cursor = conn.cursor()
 
@@ -72,6 +77,7 @@ class SessionStore:
         conn.commit()
         conn.close()
 
+        mark_table_initialized("sessions")
         logger.info("Sessions table ensured", db_path=str(self.db_path))
 
     def create(self) -> str:

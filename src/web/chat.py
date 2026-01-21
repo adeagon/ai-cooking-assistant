@@ -82,9 +82,12 @@ def chat_submit():
     if web_session.last_cards_json:
         try:
             last_cards = json.loads(web_session.last_cards_json)
+            logger.debug("Loaded last_cards from session", card_count=len(last_cards), session_id=sid)
         except json.JSONDecodeError:
             logger.warning("Failed to parse last_cards_json", session_id=sid)
             last_cards = []
+    else:
+        logger.debug("No last_cards in session", session_id=sid)
 
     # Create user context with per-request stores
     user_ctx = UserContext(
@@ -92,8 +95,11 @@ def chat_submit():
         db_path=_get_db_path(),
     )
 
+    # Get app context (may be None if not initialized)
+    app_ctx = getattr(current_app, 'app_ctx', None)
+
     # Process message through ChatService
-    chat_service = ChatService(user_ctx, last_cards)
+    chat_service = ChatService(user_ctx, last_cards, app_ctx=app_ctx)
     result: ChatResult = chat_service.process_message(
         message=message,
         rolling_summary=web_session.rolling_summary,
@@ -107,6 +113,9 @@ def chat_submit():
             card.model_dump() if hasattr(card, "model_dump") else card
             for card in result.cards
         ])
+        logger.debug("Storing new cards", card_count=len(result.cards), session_id=sid)
+    else:
+        logger.debug("No new cards to store, keeping existing", session_id=sid)
 
     # If result provides new rolling summary, use it; otherwise keep existing
     new_rolling_summary = (
