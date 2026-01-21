@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+
+{% block title %}Chat - AI Cooking Assistant{% endblock %}
+
+{% block content %}
+<div class="chat-container">
+    <div class="chat-header">
+        <h1>Recipe Assistant</h1>
+        <div class="chat-actions">
+            <form method="POST" action="{{ url_for('chat.clear_chat') }}" class="inline-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-secondary btn-small" title="Start new session">
+                    New Session
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <div class="chat-messages" id="chat-messages">
+        {% if not messages %}
+            <div class="chat-welcome">
+                <h2>Welcome to AI Cooking Assistant!</h2>
+                <p>I can help you find recipes, plan meals, and track your cooking.</p>
+                <p>Try asking:</p>
+                <ul>
+                    <li>"Suggest some quick chicken dinners"</li>
+                    <li>"I have tomatoes, pasta, and garlic"</li>
+                    <li>"Something vegetarian under 30 minutes"</li>
+                </ul>
+                <p>Or type <code>/commands</code> to see all available commands.</p>
+            </div>
+        {% else %}
+            {% for msg in messages %}
+                <div class="message message-{{ msg.role }}">
+                    <div class="message-avatar">
+                        {% if msg.role == 'user' %}
+                            {{ user.username[0]|upper }}
+                        {% else %}
+                            🍳
+                        {% endif %}
+                    </div>
+                    <div class="message-content">
+                        <div class="message-header">
+                            <span class="message-author">
+                                {% if msg.role == 'user' %}
+                                    {{ user.username }}
+                                {% else %}
+                                    Assistant
+                                {% endif %}
+                            </span>
+                            <span class="message-time">
+                                {{ msg.created_at.strftime('%H:%M') if msg.created_at else '' }}
+                            </span>
+                        </div>
+                        <div class="message-text">{{ msg.content | safe }}</div>
+                    </div>
+                </div>
+            {% endfor %}
+        {% endif %}
+    </div>
+
+    <div class="chat-input-container">
+        <form method="POST" action="{{ url_for('chat.chat_submit') }}" class="chat-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="chat-input-wrapper">
+                <input
+                    type="text"
+                    name="message"
+                    id="message-input"
+                    placeholder="Ask about recipes, ingredients, or type /commands..."
+                    autocomplete="off"
+                    autofocus
+                >
+                <button type="submit" class="btn btn-primary">
+                    Send
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    // Auto-scroll to bottom of messages
+    const messagesContainer = document.getElementById('chat-messages');
+    if (messagesContainer) {
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+
+    // Focus input on page load
+    const input = document.getElementById('message-input');
+    if (input) {
+        input.focus();
+    }
+</script>
+{% endblock %}

@@ -30,6 +30,13 @@ ml = [
     "kaggle>=1.5",
     "pandas>=2.0",
 ]
+web = [
+    "flask>=3.0",
+    "flask-login>=0.6",
+    "flask-wtf>=1.2",
+    "flask-limiter>=3.5",
+    "werkzeug>=3.0",
+]
 
 [project.scripts]
 recipe-assistant = "src.app.cli:app"

@@ -8,31 +8,59 @@ from pathlib import Path
 
 from src.app.logging_config import get_logger
 from src.domain.models import SessionState
+from src.memory._table_init import is_table_initialized, mark_table_initialized
 
 logger = get_logger(__name__)
 
 
 class SessionStore:
-    """Manages session state persistence in SQLite."""
+    """Manages session state persistence in SQLite.
 
-    def __init__(self, db_path: Path):
-        """Initialize SessionStore with database path.
+    Each user has their own isolated sessions identified by user_id (UUID).
+    """
+
+    def __init__(self, db_path: Path, user_id: str):
+        """Initialize SessionStore with database path and user ID.
 
         Args:
             db_path: Path to SQLite database file
+            user_id: UUID string identifying the user (required)
+
+        Raises:
+            ValueError: If user_id is not provided
         """
+        if not user_id:
+            raise ValueError("user_id is required")
         self.db_path = db_path
+        self.user_id = user_id
         self._current_session_id: str | None = None
         self._ensure_table()
 
+    def _get_connection(self) -> sqlite3.Connection:
+        """Get a database connection with proper settings."""
+        conn = sqlite3.connect(self.db_path, timeout=10.0)
+        conn.execute("PRAGMA busy_timeout=5000")
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.row_factory = sqlite3.Row
+        return conn
+
     def _ensure_table(self) -> None:
-        """Create sessions table if it doesn't exist."""
-        conn = sqlite3.connect(self.db_path)
+        """Create sessions table if it doesn't exist.
+
+        Note: The full schema migration is handled by scripts/migrate_multiuser.py.
+        This method ensures backward compatibility for fresh databases.
+        Uses module-level tracking to avoid redundant CREATE TABLE calls.
+        """
+        if is_table_initialized("sessions"):
+            return
+
+        conn = self._get_connection()
         cursor = conn.cursor()
 
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS sessions (
                 id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
                 ingredients_on_hand TEXT,
                 avoid_tonight TEXT,
                 goals TEXT,
@@ -44,9 +72,12 @@ class SessionStore:
             )
         """)
 
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)")
+
         conn.commit()
         conn.close()
 
+        mark_table_initialized("sessions")
         logger.info("Sessions table ensured", db_path=str(self.db_path))
 
     def create(self) -> str:
@@ -56,7 +87,7 @@ class SessionStore:
             Session ID (UUID string)
         """
         session_id = str(uuid.uuid4())
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
 
         now = datetime.now().isoformat()
@@ -64,11 +95,11 @@ class SessionStore:
         cursor.execute(
             """
             INSERT INTO sessions (
-                id, ingredients_on_hand, avoid_tonight, goals,
+                id, user_id, ingredients_on_hand, avoid_tonight, goals,
                 time_limit, servings, rolling_summary, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (session_id, "[]", "[]", "[]", None, None, "", now, now),
+            (session_id, self.user_id, "[]", "[]", "[]", None, None, "", now, now),
         )
 
         conn.commit()
@@ -76,7 +107,7 @@ class SessionStore:
 
         self._current_session_id = session_id
 
-        logger.info("Created new session", session_id=session_id)
+        logger.info("Created new session", session_id=session_id, user_id=self.user_id)
 
         return session_id
 
@@ -87,18 +118,21 @@ class SessionStore:
             session_id: Session ID to retrieve
 
         Returns:
-            SessionState if found, None otherwise
+            SessionState if found and belongs to current user, None otherwise
         """
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        conn = self._get_connection()
         cursor = conn.cursor()
 
-        cursor.execute("SELECT * FROM sessions WHERE id = ?", (session_id,))
+        # Only return session if it belongs to current user
+        cursor.execute(
+            "SELECT * FROM sessions WHERE id = ? AND user_id = ?",
+            (session_id, self.user_id),
+        )
         row = cursor.fetchone()
         conn.close()
 
         if row is None:
-            logger.warning("Session not found", session_id=session_id)
+            logger.warning("Session not found", session_id=session_id, user_id=self.user_id)
             return None
 
         # Parse JSON arrays
@@ -117,6 +151,7 @@ class SessionStore:
         logger.info(
             "Loaded session",
             session_id=session_id,
+            user_id=self.user_id,
             ingredients_count=len(ingredients_on_hand),
             goals=goals,
         )
@@ -131,7 +166,7 @@ class SessionStore:
             **updates: Fields to update (ingredients_on_hand, goals, etc.)
 
         Returns:
-            Updated SessionState if found, None otherwise
+            Updated SessionState if found and belongs to current user, None otherwise
         """
         session = self.get(session_id)
         if session is None:
@@ -145,11 +180,12 @@ class SessionStore:
                 logger.warning("Unknown session field", field=key)
 
         # Save to database
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
 
         now = datetime.now().isoformat()
 
+        # Only update if session belongs to current user
         cursor.execute(
             """
             UPDATE sessions
@@ -159,7 +195,7 @@ class SessionStore:
                 time_limit = ?,
                 servings = ?,
                 updated_at = ?
-            WHERE id = ?
+            WHERE id = ? AND user_id = ?
             """,
             (
                 json.dumps(session.ingredients_on_hand),
@@ -169,13 +205,14 @@ class SessionStore:
                 session.servings,
                 now,
                 session_id,
+                self.user_id,
             ),
         )
 
         conn.commit()
         conn.close()
 
-        logger.info("Updated session", session_id=session_id, updates=list(updates.keys()))
+        logger.info("Updated session", session_id=session_id, user_id=self.user_id, updates=list(updates.keys()))
 
         return session
 
@@ -186,20 +223,21 @@ class SessionStore:
             session_id: Session ID
             summary: New rolling summary text
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
 
         now = datetime.now().isoformat()
 
+        # Only update if session belongs to current user
         cursor.execute(
-            "UPDATE sessions SET rolling_summary = ?, updated_at = ? WHERE id = ?",
-            (summary, now, session_id),
+            "UPDATE sessions SET rolling_summary = ?, updated_at = ? WHERE id = ? AND user_id = ?",
+            (summary, now, session_id, self.user_id),
         )
 
         conn.commit()
         conn.close()
 
-        logger.info("Updated session summary", session_id=session_id, summary_length=len(summary))
+        logger.info("Updated session summary", session_id=session_id, user_id=self.user_id, summary_length=len(summary))
 
     def get_summary(self, session_id: str) -> str:
         """Get rolling summary for session.
@@ -208,13 +246,16 @@ class SessionStore:
             session_id: Session ID
 
         Returns:
-            Rolling summary text, or empty string if not found
+            Rolling summary text, or empty string if not found or not owned by user
         """
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        conn = self._get_connection()
         cursor = conn.cursor()
 
-        cursor.execute("SELECT rolling_summary FROM sessions WHERE id = ?", (session_id,))
+        # Only return summary if session belongs to current user
+        cursor.execute(
+            "SELECT rolling_summary FROM sessions WHERE id = ? AND user_id = ?",
+            (session_id, self.user_id),
+        )
         row = cursor.fetchone()
         conn.close()
 
@@ -224,7 +265,7 @@ class SessionStore:
         return row["rolling_summary"] or ""
 
     def get_or_create_current(self) -> tuple[str, SessionState]:
-        """Get current session or create new one.
+        """Get current session or create new one for current user.
 
         Returns:
             Tuple of (session_id, SessionState)
@@ -234,7 +275,7 @@ class SessionStore:
             if session is not None:
                 return self._current_session_id, session
 
-        # Create new session
+        # Create new session for this user
         session_id = self.create()
         session = self.get(session_id)
 

@@ -1,8 +1,6 @@
 """Unit tests for memory system (ProfileStore, SessionStore, RollingSummarizer)."""
 
 import sqlite3
-import tempfile
-from pathlib import Path
 
 import pytest
 
@@ -13,19 +11,9 @@ from src.memory import ProfileStore, RollingSummarizer, SessionStore
 class TestProfileStore:
     """Tests for ProfileStore."""
 
-    @pytest.fixture
-    def temp_db(self):
-        """Create temporary database for testing."""
-        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
-            db_path = Path(f.name)
-        yield db_path
-        # Cleanup
-        if db_path.exists():
-            db_path.unlink()
-
-    def test_profile_store_init_creates_table(self, temp_db):
+    def test_profile_store_init_creates_table(self, temp_db, test_user_id):
         """Test that ProfileStore creates table on initialization."""
-        store = ProfileStore(db_path=temp_db)
+        store = ProfileStore(db_path=temp_db, user_id=test_user_id)
 
         # Check table exists
         conn = sqlite3.connect(temp_db)
@@ -34,9 +22,9 @@ class TestProfileStore:
         assert cursor.fetchone() is not None
         conn.close()
 
-    def test_load_default_profile(self, temp_db):
+    def test_load_default_profile(self, temp_db, test_user_id):
         """Test loading default profile when none exists."""
-        store = ProfileStore(db_path=temp_db)
+        store = ProfileStore(db_path=temp_db, user_id=test_user_id)
         profile = store.load()
 
         assert isinstance(profile, PreferenceProfile)
@@ -45,9 +33,9 @@ class TestProfileStore:
         assert profile.avoid_ingredients == []
         assert profile.preferred_cuisines == []
 
-    def test_save_and_load_profile(self, temp_db):
+    def test_save_and_load_profile(self, temp_db, test_user_id):
         """Test saving and loading a profile."""
-        store = ProfileStore(db_path=temp_db)
+        store = ProfileStore(db_path=temp_db, user_id=test_user_id)
 
         profile = PreferenceProfile(
             spice_level="hot",
@@ -66,9 +54,9 @@ class TestProfileStore:
         assert loaded.preferred_cuisines == ["italian", "mexican"]
         assert loaded.time_limit_default_minutes == 45
 
-    def test_update_profile(self, temp_db):
+    def test_update_profile(self, temp_db, test_user_id):
         """Test updating specific profile fields."""
-        store = ProfileStore(db_path=temp_db)
+        store = ProfileStore(db_path=temp_db, user_id=test_user_id)
 
         # Save initial profile
         profile = PreferenceProfile(spice_level="mild")
@@ -89,18 +77,9 @@ class TestProfileStore:
 class TestSessionStore:
     """Tests for SessionStore."""
 
-    @pytest.fixture
-    def temp_db(self):
-        """Create temporary database for testing."""
-        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
-            db_path = Path(f.name)
-        yield db_path
-        if db_path.exists():
-            db_path.unlink()
-
-    def test_session_store_init_creates_table(self, temp_db):
+    def test_session_store_init_creates_table(self, temp_db, test_user_id):
         """Test that SessionStore creates table on initialization."""
-        store = SessionStore(db_path=temp_db)
+        store = SessionStore(db_path=temp_db, user_id=test_user_id)
 
         conn = sqlite3.connect(temp_db)
         cursor = conn.cursor()
@@ -108,9 +87,9 @@ class TestSessionStore:
         assert cursor.fetchone() is not None
         conn.close()
 
-    def test_create_session(self, temp_db):
+    def test_create_session(self, temp_db, test_user_id):
         """Test creating a new session."""
-        store = SessionStore(db_path=temp_db)
+        store = SessionStore(db_path=temp_db, user_id=test_user_id)
 
         session_id = store.create()
 
@@ -122,17 +101,17 @@ class TestSessionStore:
         assert session is not None
         assert isinstance(session, SessionState)
 
-    def test_get_nonexistent_session(self, temp_db):
+    def test_get_nonexistent_session(self, temp_db, test_user_id):
         """Test getting a session that doesn't exist."""
-        store = SessionStore(db_path=temp_db)
+        store = SessionStore(db_path=temp_db, user_id=test_user_id)
 
         session = store.get("nonexistent-id")
 
         assert session is None
 
-    def test_update_session(self, temp_db):
+    def test_update_session(self, temp_db, test_user_id):
         """Test updating session fields."""
-        store = SessionStore(db_path=temp_db)
+        store = SessionStore(db_path=temp_db, user_id=test_user_id)
 
         session_id = store.create()
 
@@ -152,9 +131,9 @@ class TestSessionStore:
         loaded = store.get(session_id)
         assert loaded.ingredients_on_hand == ["chicken", "tomatoes"]
 
-    def test_get_or_create_current(self, temp_db):
+    def test_get_or_create_current(self, temp_db, test_user_id):
         """Test get_or_create_current method."""
-        store = SessionStore(db_path=temp_db)
+        store = SessionStore(db_path=temp_db, user_id=test_user_id)
 
         session_id1, session1 = store.get_or_create_current()
 
@@ -165,9 +144,9 @@ class TestSessionStore:
         session_id2, session2 = store.get_or_create_current()
         assert session_id2 == session_id1
 
-    def test_update_and_get_summary(self, temp_db):
+    def test_update_and_get_summary(self, temp_db, test_user_id):
         """Test summary storage and retrieval."""
-        store = SessionStore(db_path=temp_db)
+        store = SessionStore(db_path=temp_db, user_id=test_user_id)
 
         session_id = store.create()
 
