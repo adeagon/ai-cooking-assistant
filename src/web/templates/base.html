@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}AI Cooking Assistant{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    {% block extra_head %}{% endblock %}
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">
+            <a href="{{ url_for('chat.chat_page') }}">AI Cooking Assistant</a>
+        </div>
+        <div class="nav-links">
+            {% if current_user.is_authenticated %}
+                <span class="nav-user">{{ current_user.username }}</span>
+                <a href="{{ url_for('auth.logout') }}" class="nav-link">Logout</a>
+            {% else %}
+                <a href="{{ url_for('auth.login') }}" class="nav-link">Login</a>
+            {% endif %}
+        </div>
+    </nav>
+
+    <main class="container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="flash-messages">
+                    {% for category, message in messages %}
+                        <div class="flash flash-{{ category }}">
+                            {{ message }}
+                            <button class="flash-close" onclick="this.parentElement.remove()">&times;</button>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="footer">
+        <p>AI Cooking Assistant &mdash; Local Recipe RAG with Qwen 3 14B</p>
+    </footer>
+
+    {% block extra_scripts %}{% endblock %}
+</body>
+</html>

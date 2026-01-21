@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block title %}Login - AI Cooking Assistant{% endblock %}
+
+{% block content %}
+<div class="auth-container">
+    <div class="auth-card">
+        <h1>Login</h1>
+        <p class="auth-subtitle">Sign in to your cooking assistant</p>
+
+        <form method="POST" action="{{ url_for('auth.login') }}" class="auth-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+            <div class="form-group">
+                <label for="username">Username</label>
+                <input
+                    type="text"
+                    id="username"
+                    name="username"
+                    required
+                    autocomplete="username"
+                    autofocus
+                    placeholder="Enter your username"
+                >
+            </div>
+
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input
+                    type="password"
+                    id="password"
+                    name="password"
+                    required
+                    autocomplete="current-password"
+                    placeholder="Enter your password"
+                >
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-full">
+                Login
+            </button>
+        </form>
+
+        <div class="auth-footer">
+            <p>Available users: Alex, Caitlyn, Family</p>
+            <p class="text-muted">First login? You'll be prompted to set a password.</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
