@@ -16,20 +16,38 @@ logger = get_logger(__name__)
 
 
 class MealPlanStore:
-    """Manages persistent storage of meal plans in SQLite."""
+    """Manages persistent storage of meal plans in SQLite.
 
-    def __init__(self, db_path: Path):
-        """Initialize MealPlanStore with database path.
+    Each user has their own isolated meal plans identified by user_id (UUID).
+    """
+
+    def __init__(self, db_path: Path, user_id: str):
+        """Initialize MealPlanStore with database path and user ID.
 
         Args:
             db_path: Path to SQLite database file
+            user_id: UUID string identifying the user (required)
+
+        Raises:
+            ValueError: If user_id is not provided
         """
+        if not user_id:
+            raise ValueError("user_id is required")
         self.db_path = db_path
+        self.user_id = user_id
         self._ensure_tables()
+
+    def _get_connection(self) -> sqlite3.Connection:
+        """Get a database connection with proper settings."""
+        conn = sqlite3.connect(self.db_path, timeout=10.0)
+        conn.execute("PRAGMA busy_timeout=5000")
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.row_factory = sqlite3.Row
+        return conn
 
     def _ensure_tables(self) -> None:
         """Create meal plan tables and indexes if they don't exist."""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
 
         # Create meal_plans table
@@ -93,7 +111,7 @@ class MealPlanStore:
         logger.info("Meal plan tables ensured", db_path=str(self.db_path))
 
     def create_plan(self, plan: MealPlan) -> int:
-        """Create a new meal plan.
+        """Create a new meal plan for current user.
 
         Args:
             plan: MealPlan object to save
@@ -101,7 +119,7 @@ class MealPlanStore:
         Returns:
             ID of the created plan
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
 
         now = datetime.now()
@@ -113,6 +131,7 @@ class MealPlanStore:
             json.dumps(plan.metrics.model_dump()) if plan.metrics else None
         )
 
+        # Always use the store's user_id, not the plan's
         cursor.execute(
             """
             INSERT INTO meal_plans (
@@ -123,7 +142,7 @@ class MealPlanStore:
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                plan.user_id,
+                self.user_id,
                 plan.name,
                 plan.start_date.isoformat(),
                 plan.end_date.isoformat(),
@@ -163,31 +182,31 @@ class MealPlanStore:
         conn.commit()
         conn.close()
 
-        logger.info("Created meal plan", plan_id=plan_id, name=plan.name)
+        logger.info("Created meal plan", plan_id=plan_id, user_id=self.user_id, name=plan.name)
         return plan_id
 
     def get_plan(self, plan_id: int) -> MealPlan | None:
-        """Get a meal plan by ID.
+        """Get a meal plan by ID if it belongs to current user.
 
         Args:
             plan_id: ID of the plan to retrieve
 
         Returns:
-            MealPlan object or None if not found
+            MealPlan object or None if not found or not owned by user
         """
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        conn = self._get_connection()
         cursor = conn.cursor()
 
+        # Only return plan if it belongs to current user
         cursor.execute(
             """
             SELECT id, user_id, name, start_date, end_date, meal_types,
                    status, schema_version, constraints, metrics,
                    created_at, updated_at
             FROM meal_plans
-            WHERE id = ?
+            WHERE id = ? AND user_id = ?
             """,
-            (plan_id,),
+            (plan_id, self.user_id),
         )
 
         row = cursor.fetchone()
@@ -255,27 +274,26 @@ class MealPlanStore:
         status: Literal["draft", "active", "completed", "archived"],
         limit: int = 10,
     ) -> list[MealPlan]:
-        """Get meal plans by status.
+        """Get meal plans by status for current user.
 
         Args:
             status: Plan status to filter by
             limit: Maximum number of plans to return
 
         Returns:
-            List of MealPlan objects
+            List of MealPlan objects for current user
         """
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        conn = self._get_connection()
         cursor = conn.cursor()
 
         cursor.execute(
             """
             SELECT id FROM meal_plans
-            WHERE status = ?
+            WHERE user_id = ? AND status = ?
             ORDER BY updated_at DESC
             LIMIT ?
             """,
-            (status, limit),
+            (self.user_id, status, limit),
         )
 
         plan_ids = [row["id"] for row in cursor.fetchall()]
@@ -285,7 +303,7 @@ class MealPlanStore:
         return [self.get_plan(pid) for pid in plan_ids if self.get_plan(pid)]
 
     def get_active_plan(self) -> MealPlan | None:
-        """Get the currently active meal plan.
+        """Get the currently active meal plan for current user.
 
         Returns:
             Active MealPlan or None if no active plan
@@ -298,25 +316,26 @@ class MealPlanStore:
         plan_id: int,
         status: Literal["draft", "active", "completed", "archived"],
     ) -> bool:
-        """Update the status of a meal plan.
+        """Update the status of a meal plan if it belongs to current user.
 
         Args:
             plan_id: ID of the plan to update
             status: New status
 
         Returns:
-            True if updated, False if plan not found
+            True if updated, False if plan not found or not owned by user
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
 
+        # Only update if plan belongs to current user
         cursor.execute(
             """
             UPDATE meal_plans
             SET status = ?, updated_at = ?
-            WHERE id = ?
+            WHERE id = ? AND user_id = ?
             """,
-            (status, datetime.now(), plan_id),
+            (status, datetime.now(), plan_id, self.user_id),
         )
 
         rows_affected = cursor.rowcount
@@ -331,27 +350,28 @@ class MealPlanStore:
             return False
 
     def update_plan_metrics(self, plan_id: int, metrics: PlanMetrics) -> bool:
-        """Update the metrics for a meal plan.
+        """Update the metrics for a meal plan if it belongs to current user.
 
         Args:
             plan_id: ID of the plan to update
             metrics: New metrics
 
         Returns:
-            True if updated, False if plan not found
+            True if updated, False if plan not found or not owned by user
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
 
         metrics_json = json.dumps(metrics.model_dump())
 
+        # Only update if plan belongs to current user
         cursor.execute(
             """
             UPDATE meal_plans
             SET metrics = ?, updated_at = ?
-            WHERE id = ?
+            WHERE id = ? AND user_id = ?
             """,
-            (metrics_json, datetime.now(), plan_id),
+            (metrics_json, datetime.now(), plan_id, self.user_id),
         )
 
         rows_affected = cursor.rowcount
@@ -359,23 +379,37 @@ class MealPlanStore:
         conn.close()
 
         if rows_affected > 0:
-            logger.info("Updated plan metrics", plan_id=plan_id)
+            logger.info("Updated plan metrics", plan_id=plan_id, user_id=self.user_id)
             return True
         else:
-            logger.warning("Plan not found for metrics update", plan_id=plan_id)
+            logger.warning("Plan not found for metrics update", plan_id=plan_id, user_id=self.user_id)
             return False
 
     def delete_plan(self, plan_id: int) -> bool:
-        """Delete a meal plan and its meals.
+        """Delete a meal plan and its meals if it belongs to current user.
 
         Args:
             plan_id: ID of the plan to delete
 
         Returns:
-            True if deleted, False if plan not found
+            True if deleted, False if plan not found or not owned by user
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
+
+        # First verify ownership
+        cursor.execute(
+            """
+            SELECT id FROM meal_plans
+            WHERE id = ? AND user_id = ?
+            """,
+            (plan_id, self.user_id),
+        )
+
+        if not cursor.fetchone():
+            conn.close()
+            logger.warning("Plan not found for deletion", plan_id=plan_id, user_id=self.user_id)
+            return False
 
         # Delete meals first (foreign key constraint)
         cursor.execute(
@@ -390,42 +424,37 @@ class MealPlanStore:
         cursor.execute(
             """
             DELETE FROM meal_plans
-            WHERE id = ?
+            WHERE id = ? AND user_id = ?
             """,
-            (plan_id,),
+            (plan_id, self.user_id),
         )
 
-        rows_affected = cursor.rowcount
         conn.commit()
         conn.close()
 
-        if rows_affected > 0:
-            logger.info("Deleted meal plan", plan_id=plan_id)
-            return True
-        else:
-            logger.warning("Plan not found for deletion", plan_id=plan_id)
-            return False
+        logger.info("Deleted meal plan", plan_id=plan_id, user_id=self.user_id)
+        return True
 
     def get_recent_plans(self, limit: int = 5) -> list[MealPlan]:
-        """Get recently updated meal plans.
+        """Get recently updated meal plans for current user.
 
         Args:
             limit: Maximum number of plans to return
 
         Returns:
-            List of MealPlan objects, most recently updated first
+            List of MealPlan objects for current user, most recently updated first
         """
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        conn = self._get_connection()
         cursor = conn.cursor()
 
         cursor.execute(
             """
             SELECT id FROM meal_plans
+            WHERE user_id = ?
             ORDER BY updated_at DESC
             LIMIT ?
             """,
-            (limit,),
+            (self.user_id, limit),
         )
 
         plan_ids = [row["id"] for row in cursor.fetchall()]
@@ -434,7 +463,7 @@ class MealPlanStore:
         return [p for pid in plan_ids if (p := self.get_plan(pid)) is not None]
 
     def add_meal_to_plan(self, meal: PlannedMeal) -> int:
-        """Add a single meal to an existing plan.
+        """Add a single meal to an existing plan if it belongs to current user.
 
         Args:
             meal: PlannedMeal to add
@@ -443,13 +472,26 @@ class MealPlanStore:
             ID of the inserted meal
 
         Raises:
-            ValueError: If plan_id is not set on the meal
+            ValueError: If plan_id is not set on the meal or plan not owned by user
         """
         if meal.plan_id is None:
             raise ValueError("plan_id must be set on the meal")
 
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
+
+        # Verify plan ownership
+        cursor.execute(
+            """
+            SELECT id FROM meal_plans
+            WHERE id = ? AND user_id = ?
+            """,
+            (meal.plan_id, self.user_id),
+        )
+
+        if not cursor.fetchone():
+            conn.close()
+            raise ValueError(f"Plan {meal.plan_id} not found or not owned by user")
 
         cursor.execute(
             """
@@ -477,35 +519,38 @@ class MealPlanStore:
             """
             UPDATE meal_plans
             SET updated_at = ?
-            WHERE id = ?
+            WHERE id = ? AND user_id = ?
             """,
-            (datetime.now(), meal.plan_id),
+            (datetime.now(), meal.plan_id, self.user_id),
         )
 
         conn.commit()
         conn.close()
 
-        logger.info("Added meal to plan", meal_id=meal_id, plan_id=meal.plan_id)
+        logger.info("Added meal to plan", meal_id=meal_id, plan_id=meal.plan_id, user_id=self.user_id)
         return meal_id
 
     def remove_meal_from_plan(self, meal_id: int) -> bool:
-        """Remove a single meal from a plan.
+        """Remove a single meal from a plan if it belongs to current user.
 
         Args:
             meal_id: ID of the meal to remove
 
         Returns:
-            True if removed, False if not found
+            True if removed, False if not found or not owned by user
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
 
-        # Get plan_id before deletion for updated_at update
+        # Get plan_id and verify ownership
         cursor.execute(
             """
-            SELECT plan_id FROM planned_meals WHERE id = ?
+            SELECT pm.plan_id
+            FROM planned_meals pm
+            JOIN meal_plans mp ON pm.plan_id = mp.id
+            WHERE pm.id = ? AND mp.user_id = ?
             """,
-            (meal_id,),
+            (meal_id, self.user_id),
         )
 
         row = cursor.fetchone()
@@ -529,27 +574,27 @@ class MealPlanStore:
             """
             UPDATE meal_plans
             SET updated_at = ?
-            WHERE id = ?
+            WHERE id = ? AND user_id = ?
             """,
-            (datetime.now(), plan_id),
+            (datetime.now(), plan_id, self.user_id),
         )
 
         conn.commit()
         conn.close()
 
-        logger.info("Removed meal from plan", meal_id=meal_id, plan_id=plan_id)
+        logger.info("Removed meal from plan", meal_id=meal_id, plan_id=plan_id, user_id=self.user_id)
         return True
 
     def get_plan_count(self) -> int:
-        """Get total number of meal plans.
+        """Get total number of meal plans for current user.
 
         Returns:
-            Count of all meal plans
+            Count of meal plans for current user
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
 
-        cursor.execute("SELECT COUNT(*) FROM meal_plans")
+        cursor.execute("SELECT COUNT(*) FROM meal_plans WHERE user_id = ?", (self.user_id,))
         count = cursor.fetchone()[0]
 
         conn.close()

@@ -10,6 +10,8 @@ from src.memory.profile_store import ProfileStore
 from src.memory.recipe_box_store import RecipeBoxStore
 from src.memory.session_store import SessionStore
 from src.memory.summarizer import RollingSummarizer
+from src.memory.user_store import User, UserStore
+from src.memory.web_session_store import WebMessage, WebSession, WebSessionStore
 
 __all__ = [
     "FeedbackStore",
@@ -19,4 +21,9 @@ __all__ = [
     "RecipeBoxStore",
     "SessionStore",
     "RollingSummarizer",
+    "User",
+    "UserStore",
+    "WebMessage",
+    "WebSession",
+    "WebSessionStore",
 ]
