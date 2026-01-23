@@ -105,7 +105,8 @@ Local Recipe Assistant: A fully-local, interactive dinner-planning assistant usi
   - **BaseUserBoundStore**: Abstract base class for consistent store initialization
   - **UserStores dataclass**: Container for all 6 store types (profile, feedback, history, recipe_box, session, meal_plan)
   - **CLI flow enhancements** (Phase 4): Multi-user startup banner, redundant login detection, user context in all logs
-  - All 639 tests passing (53 new multi-user tests including 4 for CLI flow)
+  - **Complete test coverage** (Phase 5): MealPlanStore isolation tests, FeedbackStore cuisine preference isolation, SessionStore cross-user protection
+  - All 648 tests passing (62 multi-user tests total: 53 from Phases 1-4 + 9 Phase 5 tests)
 
 ## Pending Tasks
 
@@ -192,8 +193,11 @@ pytest tests/test_feedback.py tests/test_history.py tests/test_feedback_integrat
 # Run meal planning tests
 pytest tests/test_meal_plan*.py tests/test_ingredient*.py tests/test_grocery*.py -v
 
-# Run multi-user isolation tests
+# Run multi-user isolation tests (95 tests expected)
 pytest tests/test_multi_user_isolation.py tests/test_store_factory.py tests/test_cli_login_flow.py tests/test_user_context.py -v
+
+# Run MealPlanStore isolation tests specifically
+pytest tests/test_multi_user_isolation.py::TestMealPlanIsolation -v
 
 # Run LLM integration tests (requires Ollama running)
 pytest tests/test_llm_chat_phase5.py -v -s -m llm

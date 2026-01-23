@@ -169,6 +169,38 @@ class TestStoreFactory:
         assert isinstance(stores.session, SessionStore)
         assert isinstance(stores.meal_plan, MealPlanStore)
 
+    def test_factory_produces_isolated_stores_per_user(self, temp_db):
+        """Verify factory produces isolated store instances per user (sanity check).
+
+        This test verifies the key multi-user isolation property: different users
+        get different store instances, and the same user always gets the same
+        (cached) instance.
+        """
+        factory = StoreFactory(temp_db)
+        alice_stores = factory.get_stores("alice")
+        bob_stores = factory.get_stores("bob")
+
+        # Different UserStores instances
+        assert alice_stores is not bob_stores
+
+        # Each store type is different instance
+        assert alice_stores.profile is not bob_stores.profile
+        assert alice_stores.feedback is not bob_stores.feedback
+        assert alice_stores.history is not bob_stores.history
+        assert alice_stores.recipe_box is not bob_stores.recipe_box
+        assert alice_stores.session is not bob_stores.session
+        assert alice_stores.meal_plan is not bob_stores.meal_plan
+
+        # Each store is bound to correct user
+        assert alice_stores.profile.user == "alice"
+        assert bob_stores.profile.user == "bob"
+        assert alice_stores.meal_plan.user == "alice"
+        assert bob_stores.meal_plan.user == "bob"
+
+        # But same user returns cached instance
+        alice_stores_again = factory.get_stores("alice")
+        assert alice_stores is alice_stores_again
+
 
 class TestBaseUserBoundStore:
     """Test BaseUserBoundStore behavior via concrete implementations."""

@@ -4,15 +4,16 @@ These tests verify that user data is properly segregated and that
 users cannot access each other's data.
 
 Phase 3: Uses user-bound store instances (username at __init__).
+Phase 5: Added MealPlanStore isolation tests.
 """
 
 import sqlite3
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
-from src.domain.models import RecipeFeedback, PreferenceProfile
+from src.domain.models import MealPlan, MealPlanConstraints, PreferenceProfile, RecipeFeedback
 from src.memory.feedback_store import FeedbackStore
 from src.memory.history_store import HistoryStore
 from src.memory.profile_store import ProfileStore
@@ -186,6 +187,67 @@ class TestFeedbackIsolation:
         guest_store = FeedbackStore(temp_db, username="guest")
         guest_likes = guest_store.get_liked_recipe_ids()
         assert "recipe_1" in guest_likes
+
+    def test_preferred_cuisines_isolated(self, temp_db):
+        """get_preferred_cuisines_from_likes uses only current user's feedback."""
+        # Update recipes with cuisine tags for the test
+        conn = sqlite3.connect(temp_db)
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE recipes SET tags = ? WHERE recipe_id = ?",
+            ('["italian", "pasta"]', "recipe_1"),
+        )
+        cursor.execute(
+            "UPDATE recipes SET tags = ? WHERE recipe_id = ?",
+            ('["thai", "asian"]', "recipe_2"),
+        )
+        # Add more recipes for min_count threshold
+        cursor.execute(
+            "INSERT INTO recipes VALUES ('recipe_6', 'Italian Soup', '[\"italian\"]')"
+        )
+        cursor.execute(
+            "INSERT INTO recipes VALUES ('recipe_7', 'Italian Pizza', '[\"italian\"]')"
+        )
+        cursor.execute(
+            "INSERT INTO recipes VALUES ('recipe_8', 'Thai Curry', '[\"thai\"]')"
+        )
+        cursor.execute(
+            "INSERT INTO recipes VALUES ('recipe_9', 'Thai Noodles', '[\"thai\"]')"
+        )
+        conn.commit()
+        conn.close()
+
+        store_alex = FeedbackStore(temp_db, username="alex")
+        store_caitlyn = FeedbackStore(temp_db, username="caitlyn")
+
+        # Alex likes Italian recipes (3 times to meet min_count)
+        for recipe_id in ["recipe_1", "recipe_6", "recipe_7"]:
+            store_alex.add_feedback(
+                RecipeFeedback(
+                    recipe_id=recipe_id,
+                    feedback_type="like",
+                    session_id="session1",
+                )
+            )
+
+        # Caitlyn likes Thai recipes (3 times to meet min_count)
+        for recipe_id in ["recipe_2", "recipe_8", "recipe_9"]:
+            store_caitlyn.add_feedback(
+                RecipeFeedback(
+                    recipe_id=recipe_id,
+                    feedback_type="like",
+                    session_id="session2",
+                )
+            )
+
+        # Each sees only their own preferences
+        alex_cuisines = store_alex.get_preferred_cuisines_from_likes(min_count=3)
+        caitlyn_cuisines = store_caitlyn.get_preferred_cuisines_from_likes(min_count=3)
+
+        assert "italian" in alex_cuisines
+        assert "thai" not in alex_cuisines
+        assert "thai" in caitlyn_cuisines
+        assert "italian" not in caitlyn_cuisines
 
 
 class TestRecipeBoxIsolation:
@@ -370,6 +432,176 @@ class TestSessionIsolation:
 
         # Should be different from Alex's
         assert caitlyn_id != alex_id1
+
+    def test_get_or_create_current_ignores_other_users_sessions(self, temp_db):
+        """get_or_create_current only returns sessions for the bound user.
+
+        Even if another user has sessions in the database, get_or_create_current
+        will create a new session for the current user rather than returning
+        another user's session.
+        """
+        store_alex = SessionStore(temp_db, username="alex")
+        store_caitlyn = SessionStore(temp_db, username="caitlyn")
+
+        # Alex creates a session
+        alex_session_id, _ = store_alex.get_or_create_current()
+
+        # Caitlyn asks for her current session - should NOT get Alex's
+        caitlyn_session_id, _ = store_caitlyn.get_or_create_current()
+
+        # Verify they are different sessions
+        assert caitlyn_session_id != alex_session_id
+
+        # Verify each user's get_or_create_current consistently returns their own session
+        alex_session_id_again, _ = store_alex.get_or_create_current()
+        caitlyn_session_id_again, _ = store_caitlyn.get_or_create_current()
+
+        assert alex_session_id == alex_session_id_again
+        assert caitlyn_session_id == caitlyn_session_id_again
+
+
+class TestMealPlanIsolation:
+    """Test that meal plans are isolated per user."""
+
+    def test_plans_isolated_by_user(self, temp_db):
+        """Plans created by one user not visible to another."""
+        factory = StoreFactory(temp_db)
+        alice_store = factory.get_stores("alice").meal_plan
+        bob_store = factory.get_stores("bob").meal_plan
+
+        # Alice creates a plan
+        alice_plan = MealPlan(
+            start_date=date.today(),
+            end_date=date.today() + timedelta(days=6),
+            status="active",
+            constraints={"days": 7},
+        )
+        alice_store.save_plan(alice_plan)
+
+        # Bob should see no plans
+        assert bob_store.get_plan_count() == 0
+        assert alice_store.get_plan_count() == 1
+
+    def test_active_plan_isolated(self, temp_db):
+        """get_active_plan returns only current user's active plan."""
+        factory = StoreFactory(temp_db)
+        alice_store = factory.get_stores("alice").meal_plan
+        bob_store = factory.get_stores("bob").meal_plan
+
+        # Alice creates active plan
+        alice_plan = MealPlan(
+            start_date=date.today(),
+            end_date=date.today() + timedelta(days=6),
+            status="active",
+            constraints={"days": 7},
+        )
+        alice_store.save_plan(alice_plan)
+
+        # Bob should have no active plan
+        assert bob_store.get_active_plan() is None
+        assert alice_store.get_active_plan() is not None
+
+    def test_plans_by_status_isolated(self, temp_db):
+        """get_plans_by_status filters by user."""
+        factory = StoreFactory(temp_db)
+        alice_store = factory.get_stores("alice").meal_plan
+        bob_store = factory.get_stores("bob").meal_plan
+
+        # Alice creates active plan
+        alice_plan = MealPlan(
+            start_date=date.today(),
+            end_date=date.today() + timedelta(days=6),
+            status="active",
+            constraints={"days": 7},
+        )
+        alice_store.save_plan(alice_plan)
+
+        # Bob queries active plans - should be empty
+        assert len(bob_store.get_plans_by_status("active")) == 0
+        assert len(alice_store.get_plans_by_status("active")) == 1
+
+    def test_both_users_can_have_active_plans(self, temp_db):
+        """Each user can have their own active plan simultaneously."""
+        factory = StoreFactory(temp_db)
+        alice_store = factory.get_stores("alice").meal_plan
+        bob_store = factory.get_stores("bob").meal_plan
+
+        # Both create active plans
+        for store in [alice_store, bob_store]:
+            plan = MealPlan(
+                start_date=date.today(),
+                end_date=date.today() + timedelta(days=6),
+                status="active",
+                constraints={"days": 7},
+            )
+            store.save_plan(plan)
+
+        # Each sees only their own
+        assert alice_store.get_plan_count() == 1
+        assert bob_store.get_plan_count() == 1
+        assert alice_store.get_active_plan().id != bob_store.get_active_plan().id
+
+    def test_delete_plan_only_affects_owner(self, temp_db):
+        """Deleting a plan doesn't affect other user's plans."""
+        factory = StoreFactory(temp_db)
+        alice_store = factory.get_stores("alice").meal_plan
+        bob_store = factory.get_stores("bob").meal_plan
+
+        # Both create plans
+        alice_plan = MealPlan(
+            start_date=date.today(),
+            end_date=date.today() + timedelta(days=6),
+            status="active",
+            constraints={"days": 7},
+        )
+        alice_plan_id = alice_store.save_plan(alice_plan)
+
+        bob_plan = MealPlan(
+            start_date=date.today(),
+            end_date=date.today() + timedelta(days=6),
+            status="active",
+            constraints={"days": 7},
+        )
+        bob_store.save_plan(bob_plan)
+
+        # Alice deletes her plan
+        alice_store.delete_plan(alice_plan_id)
+
+        # Bob's plan unaffected
+        assert alice_store.get_plan_count() == 0
+        assert bob_store.get_plan_count() == 1
+
+    def test_recent_plans_isolated(self, temp_db):
+        """get_recent_plans returns only current user's plans."""
+        factory = StoreFactory(temp_db)
+        alice_store = factory.get_stores("alice").meal_plan
+        bob_store = factory.get_stores("bob").meal_plan
+
+        # Alice creates multiple plans
+        for i in range(3):
+            alice_plan = MealPlan(
+                start_date=date.today() + timedelta(days=i * 7),
+                end_date=date.today() + timedelta(days=(i + 1) * 7 - 1),
+                status="completed",
+                constraints={"days": 7},
+            )
+            alice_store.save_plan(alice_plan)
+
+        # Bob creates one plan
+        bob_plan = MealPlan(
+            start_date=date.today(),
+            end_date=date.today() + timedelta(days=6),
+            status="draft",
+            constraints={"days": 7},
+        )
+        bob_store.save_plan(bob_plan)
+
+        # Each sees only their own recent plans
+        alice_recent = alice_store.get_recent_plans(limit=10)
+        bob_recent = bob_store.get_recent_plans(limit=10)
+
+        assert len(alice_recent) == 3
+        assert len(bob_recent) == 1
 
 
 class TestDefaultGuestFallback:
