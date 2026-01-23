@@ -14,11 +14,13 @@ Local recipe assistant using RAG (Retrieval-Augmented Generation) with Qwen 3 14
 - ✅ **Chat Enhancements**: Bug fixes for reliability (negative constraints, intent classification, empty response handling)
 - ✅ **Hybrid LLM**: Selective thinking mode - thoughtful clarification, fast recommendations
 - ✅ **Meal Planning**: Plan meals for the week with ingredient overlap optimization
+- ✅ **Multi-User Support**: Complete user isolation with `/login`, `/logout`, `/whoami` commands
 
 ## Features
 
 - **Conversational Interface**: Natural language chat powered by Qwen 3 14B (Phase 4)
 - **Smart Recommendations**: Recommends real recipes from Food.com dataset (88K+ indexed)
+- **Multi-User Support**: Multiple users with complete data isolation (`/login`, `/logout`, `/whoami`)
 - **Meal Planning**: Plan up to a week of meals with ingredient overlap optimization
 - **Grocery List**: Auto-generated shopping list from your meal plan
 - **Recipe Box**: Save and bookmark recipes for later reference
@@ -171,15 +173,21 @@ Start a conversational session with the recipe assistant:
 
 ```bash
 python -m src.app.cli chat
+
+# Start as a specific user
+python -m src.app.cli chat --user alex
 ```
 
 **Features:**
 - Natural language conversation powered by Qwen 3 14B
 - **Natural language commands** - say "I loved that one" instead of `/like 1`
+- **Multi-user support** - each user has isolated preferences, history, and saved recipes
 - Automatic constraint extraction (ingredients, time, diet, cuisine, goals)
 - Intelligent clarification when constraints are vague
 - Real-time recipe recommendations from 88K+ indexed recipes
 - Session memory with rolling summaries
+
+**Available Users:** guest (default), alex, caitlyn, family, test
 
 **Commands** (use slash commands OR natural language):
 
@@ -199,6 +207,9 @@ python -m src.app.cli chat
 | `/mealplan` | "plan my meals", "help me plan dinners", "meal plan" |
 | `/plan` | "show my plan", "view meal plan", "current plan" |
 | `/grocery` | "grocery list", "shopping list", "what do I need to buy" |
+| `/login <user>` | "login as alex", "switch to caitlyn" |
+| `/logout` | "logout", "sign out" |
+| `/whoami` | "who am I", "current user" |
 | `quit` / `exit` | "quit", "exit" |
 
 **Examples:**
@@ -228,6 +239,14 @@ You: show my plan
 [Displays the meal plan]
 You: grocery list
 [Generates aggregated shopping list]
+
+# Multi-user support
+You: /login alex
+[Logged in as: alex]
+You: /whoami
+[Logged in as: alex]
+You: /logout
+[Logged out. Now logged in as: guest]
 ```
 
 ## Development
@@ -235,7 +254,7 @@ You: grocery list
 ### Run Tests
 
 ```bash
-# Run all tests (545 tests total)
+# Run all tests (648 tests total)
 pytest
 
 # Run retrieval tests (including metadata filtering)
@@ -253,6 +272,9 @@ pytest tests/test_feedback.py tests/test_history.py tests/test_feedback_integrat
 # Run meal planning tests
 pytest tests/test_meal_plan*.py tests/test_ingredient*.py tests/test_grocery*.py -v
 
+# Run multi-user isolation tests (95 tests)
+pytest tests/test_multi_user_isolation.py tests/test_store_factory.py tests/test_cli_login_flow.py tests/test_user_context.py -v
+
 # Run LLM integration tests (requires Ollama running)
 pytest tests/test_llm_chat_phase5.py -v -s -m llm
 
@@ -267,8 +289,15 @@ pytest --cov=src
 ```
 
 **Test Suite**:
-- **545 total tests** (all passing)
-- **Chat Enhancement Tests (14 new)**:
+- **648 total tests** (all passing)
+- **Multi-User Tests (95 unit + 34 conversation)**:
+  - User identity tracking (`/login`, `/logout`, `/whoami`)
+  - Data isolation across all 6 stores (profile, feedback, history, recipe_box, session, meal_plan)
+  - StoreFactory caching and user switching
+  - BaseUserBoundStore inheritance verification
+  - Rapid user switching without data leakage
+  - End-to-end conversation tests with Ollama
+- **Chat Enhancement Tests (14)**:
   - Negative constraint extraction ("no casseroles", "without cheese")
   - Article stripping for recipe name matching
   - Word-subset matching for fuzzy lookups
@@ -283,7 +312,7 @@ pytest --cov=src
 - **Enhanced Tests (12)**: Data-driven cuisine/goal extraction
 - **Phase 5 Tests (48)**: FeedbackStore, HistoryStore, integration workflows
 - **Phase 4 Tests (76)**: Memory system, chains, integration, chat scenarios
-- **Hybrid LLM Tests (1 new)**: Dish name + cuisine clarification logic
+- **Hybrid LLM Tests (1)**: Dish name + cuisine clarification logic
 - **Meal Planning Tests (240+)**:
   - Ingredient normalizer (phrase preservation, stop tokens)
   - Ingredient categories classifier (dairy, meat, seafood, nuts, gluten)
@@ -295,6 +324,7 @@ pytest --cov=src
 - **Phase 1-3 Tests (82)**: All regression tests passing
 - **Conversation Tests (48)**: Comprehensive chatbot scenarios (run via `scripts/conversation_test_session.py`)
 - **Meal Planning Conversation Tests (8)**: Full flow tests (run via `scripts/test_meal_planning_conversation.py`)
+- **Multi-User Conversation Tests (34)**: User isolation tests (run via `scripts/test_multi_user_conversation.py`)
 
 See `PHASE_4_TEST_RESULTS.md` for Phase 4 test results and `PHASE_5_SUMMARY.md` for Phase 5 implementation details.
 
@@ -359,12 +389,23 @@ python -m src.app.cli chat               # Interactive assistant
 ```
 ai-cooking-assistant/
 ├── src/
-│   ├── app/          # CLI and settings
+│   ├── app/          # CLI, settings, and user context
+│   │   ├── cli.py           # Typer CLI with multi-user support
+│   │   ├── settings.py      # Pydantic settings
+│   │   └── user_context.py  # UserContext and UserRegistry
 │   ├── domain/       # Pydantic models
 │   ├── ingest/       # Data ingestion pipeline
 │   ├── retrieval/    # Vector search and retrieval
 │   ├── llm/          # LLM client (Phase 4+)
-│   ├── memory/       # User preferences (Phase 5+)
+│   ├── memory/       # User preferences with multi-user support
+│   │   ├── base_store.py       # BaseUserBoundStore abstract class
+│   │   ├── store_factory.py    # StoreFactory for user-scoped stores
+│   │   ├── profile_store.py    # User preferences
+│   │   ├── feedback_store.py   # Likes/dislikes/ratings
+│   │   ├── history_store.py    # Cooking history
+│   │   ├── recipe_box_store.py # Saved recipes
+│   │   ├── session_store.py    # Session state
+│   │   └── meal_plan_store.py  # Meal plans
 │   ├── chains/       # LangChain LCEL (Phase 4+)
 │   ├── planning/     # Meal planning system
 │   └── utils/        # Shared utilities (tag_loader, etc.)
@@ -375,15 +416,19 @@ ai-cooking-assistant/
 ├── scripts/          # Classification and utility scripts
 │   ├── apply_ingredient_rules.py        # Deterministic vegetarian/vegan tagging
 │   ├── classify_comprehensive_tags.py   # LLM taste/occasion/cuisine classification
-│   ├── classify_taste_tags_parallel.py  # Legacy taste classification (deprecated)
 │   ├── spot_check_classifications.py    # Validation script
 │   ├── benchmark_accuracy.py            # Classification accuracy testing
-│   ├── benchmark_comprehensive.py       # Model comparison benchmarks
 │   ├── conversation_test_session.py     # Comprehensive chatbot tests (48 scenarios)
 │   ├── test_clarification_quality.py    # Clarification response quality tests
 │   ├── compare_clarification_modes.py   # Compare reasoning=True vs False
-│   └── test_meal_planning_conversation.py  # Meal planning flow tests (8 scenarios)
-├── tests/            # Unit and integration tests
+│   ├── test_meal_planning_conversation.py  # Meal planning flow tests (8 scenarios)
+│   └── test_multi_user_conversation.py  # Multi-user isolation tests (34 scenarios)
+├── tests/            # Unit and integration tests (648 tests)
+│   ├── test_multi_user_isolation.py  # Multi-user data isolation tests
+│   ├── test_store_factory.py         # StoreFactory tests
+│   ├── test_cli_login_flow.py        # Login/logout flow tests
+│   ├── test_user_context.py          # UserContext/UserRegistry tests
+│   └── ...                           # Other test files
 ├── data/             # Data directory (not in git)
 │   ├── raw/          # Downloaded datasets
 │   ├── processed/    # Normalized recipes
