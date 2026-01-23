@@ -11,34 +11,19 @@ from src.memory import _sqlite_compat  # noqa: F401
 
 from src.app.logging_config import get_logger
 from src.domain.models import MealPlan, PlannedMeal, PlanMetrics
+from src.memory.base_store import BaseUserBoundStore
 
 logger = get_logger(__name__)
 
 
-class MealPlanStore:
+class MealPlanStore(BaseUserBoundStore):
     """Manages persistent storage of meal plans in SQLite.
 
     Each store instance is bound to a specific user at instantiation.
     The user cannot be changed after initialization.
     """
 
-    def __init__(self, db_path: Path, username: str = "guest"):
-        """Initialize MealPlanStore bound to a specific user.
-
-        Args:
-            db_path: Path to SQLite database file
-            username: Username this store is bound to (default: "guest")
-        """
-        self.db_path = db_path
-        self._user = username
-        self._ensure_tables()
-
-    @property
-    def user(self) -> str:
-        """Read-only access to bound username."""
-        return self._user
-
-    def _ensure_tables(self) -> None:
+    def _ensure_table(self) -> None:
         """Create meal plan tables and indexes if they don't exist."""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -196,9 +181,9 @@ class MealPlanStore:
                    status, schema_version, constraints, metrics,
                    created_at, updated_at
             FROM meal_plans
-            WHERE id = ?
+            WHERE id = ? AND user_id = ?
             """,
-            (plan_id,),
+            (plan_id, self.user),
         )
 
         row = cursor.fetchone()
@@ -325,9 +310,9 @@ class MealPlanStore:
             """
             UPDATE meal_plans
             SET status = ?, updated_at = ?
-            WHERE id = ?
+            WHERE id = ? AND user_id = ?
             """,
-            (status, datetime.now(), plan_id),
+            (status, datetime.now(), plan_id, self.user),
         )
 
         rows_affected = cursor.rowcount
@@ -360,9 +345,9 @@ class MealPlanStore:
             """
             UPDATE meal_plans
             SET metrics = ?, updated_at = ?
-            WHERE id = ?
+            WHERE id = ? AND user_id = ?
             """,
-            (metrics_json, datetime.now(), plan_id),
+            (metrics_json, datetime.now(), plan_id, self.user),
         )
 
         rows_affected = cursor.rowcount
@@ -383,10 +368,20 @@ class MealPlanStore:
             plan_id: ID of the plan to delete
 
         Returns:
-            True if deleted, False if plan not found
+            True if deleted, False if plan not found or not owned by user
         """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
+
+        # Verify ownership before deletion
+        cursor.execute(
+            "SELECT id FROM meal_plans WHERE id = ? AND user_id = ?",
+            (plan_id, self.user),
+        )
+        if cursor.fetchone() is None:
+            conn.close()
+            logger.warning("Plan not found or not owned by user", plan_id=plan_id, user=self.user)
+            return False
 
         # Delete meals first (foreign key constraint)
         cursor.execute(
@@ -397,13 +392,13 @@ class MealPlanStore:
             (plan_id,),
         )
 
-        # Delete plan
+        # Delete plan (ownership already verified)
         cursor.execute(
             """
             DELETE FROM meal_plans
-            WHERE id = ?
+            WHERE id = ? AND user_id = ?
             """,
-            (plan_id,),
+            (plan_id, self.user),
         )
 
         rows_affected = cursor.rowcount
@@ -411,7 +406,7 @@ class MealPlanStore:
         conn.close()
 
         if rows_affected > 0:
-            logger.info("Deleted meal plan", plan_id=plan_id)
+            logger.info("Deleted meal plan", plan_id=plan_id, user=self.user)
             return True
         else:
             logger.warning("Plan not found for deletion", plan_id=plan_id)
@@ -455,13 +450,22 @@ class MealPlanStore:
             ID of the inserted meal
 
         Raises:
-            ValueError: If plan_id is not set on the meal
+            ValueError: If plan_id is not set on the meal, or plan not owned by user
         """
         if meal.plan_id is None:
             raise ValueError("plan_id must be set on the meal")
 
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
+
+        # Verify plan ownership before adding meal
+        cursor.execute(
+            "SELECT id FROM meal_plans WHERE id = ? AND user_id = ?",
+            (meal.plan_id, self.user),
+        )
+        if cursor.fetchone() is None:
+            conn.close()
+            raise ValueError(f"Plan {meal.plan_id} not found or not owned by {self.user}")
 
         cursor.execute(
             """
@@ -484,20 +488,20 @@ class MealPlanStore:
 
         meal_id = cursor.lastrowid
 
-        # Update plan's updated_at
+        # Update plan's updated_at (ownership already verified)
         cursor.execute(
             """
             UPDATE meal_plans
             SET updated_at = ?
-            WHERE id = ?
+            WHERE id = ? AND user_id = ?
             """,
-            (datetime.now(), meal.plan_id),
+            (datetime.now(), meal.plan_id, self.user),
         )
 
         conn.commit()
         conn.close()
 
-        logger.info("Added meal to plan", meal_id=meal_id, plan_id=meal.plan_id)
+        logger.info("Added meal to plan", meal_id=meal_id, plan_id=meal.plan_id, user=self.user)
         return meal_id
 
     def remove_meal_from_plan(self, meal_id: int) -> bool:
@@ -507,23 +511,27 @@ class MealPlanStore:
             meal_id: ID of the meal to remove
 
         Returns:
-            True if removed, False if not found
+            True if removed, False if not found or not owned by user
         """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
-        # Get plan_id before deletion for updated_at update
+        # Get plan_id and verify ownership before deletion
         cursor.execute(
             """
-            SELECT plan_id FROM planned_meals WHERE id = ?
+            SELECT pm.plan_id
+            FROM planned_meals pm
+            JOIN meal_plans mp ON pm.plan_id = mp.id
+            WHERE pm.id = ? AND mp.user_id = ?
             """,
-            (meal_id,),
+            (meal_id, self.user),
         )
 
         row = cursor.fetchone()
 
         if not row:
             conn.close()
+            logger.warning("Meal not found or plan not owned by user", meal_id=meal_id, user=self.user)
             return False
 
         plan_id = row[0]
@@ -536,20 +544,20 @@ class MealPlanStore:
             (meal_id,),
         )
 
-        # Update plan's updated_at
+        # Update plan's updated_at (ownership already verified)
         cursor.execute(
             """
             UPDATE meal_plans
             SET updated_at = ?
-            WHERE id = ?
+            WHERE id = ? AND user_id = ?
             """,
-            (datetime.now(), plan_id),
+            (datetime.now(), plan_id, self.user),
         )
 
         conn.commit()
         conn.close()
 
-        logger.info("Removed meal from plan", meal_id=meal_id, plan_id=plan_id)
+        logger.info("Removed meal from plan", meal_id=meal_id, plan_id=plan_id, user=self.user)
         return True
 
     def get_plan_count(self) -> int:

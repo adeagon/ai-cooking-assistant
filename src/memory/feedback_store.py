@@ -9,32 +9,17 @@ from src.memory import _sqlite_compat  # noqa: F401
 
 from src.app.logging_config import get_logger
 from src.domain.models import RecipeFeedback
+from src.memory.base_store import BaseUserBoundStore
 
 logger = get_logger(__name__)
 
 
-class FeedbackStore:
+class FeedbackStore(BaseUserBoundStore):
     """Manages persistent storage of recipe feedback (likes, dislikes, ratings) in SQLite.
 
     Each store instance is bound to a specific user at instantiation.
     The user cannot be changed after initialization.
     """
-
-    def __init__(self, db_path: Path, username: str = "guest"):
-        """Initialize FeedbackStore bound to a specific user.
-
-        Args:
-            db_path: Path to SQLite database file
-            username: Username this store is bound to (default: "guest")
-        """
-        self.db_path = db_path
-        self._user = username
-        self._ensure_table()
-
-    @property
-    def user(self) -> str:
-        """Read-only access to bound username."""
-        return self._user
 
     def _ensure_table(self) -> None:
         """Create feedback table and indexes if they don't exist.

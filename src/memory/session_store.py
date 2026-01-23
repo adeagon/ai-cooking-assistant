@@ -8,11 +8,12 @@ from pathlib import Path
 
 from src.app.logging_config import get_logger
 from src.domain.models import SessionState
+from src.memory.base_store import BaseUserBoundStore
 
 logger = get_logger(__name__)
 
 
-class SessionStore:
+class SessionStore(BaseUserBoundStore):
     """Manages session state persistence in SQLite.
 
     Each store instance is bound to a specific user at instantiation.
@@ -26,16 +27,9 @@ class SessionStore:
             db_path: Path to SQLite database file
             username: Username this store is bound to (default: "guest")
         """
-        self.db_path = db_path
-        self._user = username
         # Track current session for this user (single session per store instance)
         self._current_session_id: str | None = None
-        self._ensure_table()
-
-    @property
-    def user(self) -> str:
-        """Read-only access to bound username."""
-        return self._user
+        super().__init__(db_path, username)
 
     def _ensure_table(self) -> None:
         """Create sessions table if it doesn't exist.

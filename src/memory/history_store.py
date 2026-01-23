@@ -9,32 +9,17 @@ from src.memory import _sqlite_compat  # noqa: F401
 
 from src.app.logging_config import get_logger
 from src.domain.models import CookingHistoryEntry
+from src.memory.base_store import BaseUserBoundStore
 
 logger = get_logger(__name__)
 
 
-class HistoryStore:
+class HistoryStore(BaseUserBoundStore):
     """Manages persistent storage of cooking history in SQLite.
 
     Each store instance is bound to a specific user at instantiation.
     The user cannot be changed after initialization.
     """
-
-    def __init__(self, db_path: Path, username: str = "guest"):
-        """Initialize HistoryStore bound to a specific user.
-
-        Args:
-            db_path: Path to SQLite database file
-            username: Username this store is bound to (default: "guest")
-        """
-        self.db_path = db_path
-        self._user = username
-        self._ensure_table()
-
-    @property
-    def user(self) -> str:
-        """Read-only access to bound username."""
-        return self._user
 
     def _ensure_table(self) -> None:
         """Create cooking history table and index if they don't exist.
