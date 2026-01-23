@@ -12,7 +12,10 @@ logger = get_logger(__name__)
 
 
 class ProfileStore:
-    """Manages persistent storage of user preferences in SQLite."""
+    """Manages persistent storage of user preferences in SQLite.
+
+    Each user has their own preference profile, keyed by username.
+    """
 
     def __init__(self, db_path: Path):
         """Initialize ProfileStore with database path.
@@ -24,22 +27,74 @@ class ProfileStore:
         self._ensure_table()
 
     def _ensure_table(self) -> None:
-        """Create preferences table if it doesn't exist."""
+        """Create preferences table if it doesn't exist.
+
+        Handles migration from old id-based schema to username-based schema.
+        """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS preferences (
-                id INTEGER PRIMARY KEY DEFAULT 1,
-                spice_level TEXT DEFAULT 'medium',
-                diet TEXT DEFAULT 'none',
-                avoid_ingredients TEXT,
-                preferred_cuisines TEXT,
-                time_limit_default INTEGER,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
+        # Check if table exists and has old schema (id-based)
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='preferences'"
+        )
+        table_exists = cursor.fetchone() is not None
+
+        if table_exists:
+            # Check for old schema (id column, no username column)
+            cursor.execute("PRAGMA table_info(preferences)")
+            columns = {col[1]: col for col in cursor.fetchall()}
+
+            if "username" not in columns and "id" in columns:
+                logger.info("Migrating preferences table to username-based schema")
+
+                # Rename old table
+                cursor.execute("ALTER TABLE preferences RENAME TO preferences_old")
+
+                # Create new table with username PK
+                cursor.execute("""
+                    CREATE TABLE preferences (
+                        username TEXT PRIMARY KEY,
+                        spice_level TEXT DEFAULT 'medium',
+                        diet TEXT DEFAULT 'none',
+                        avoid_ingredients TEXT,
+                        preferred_cuisines TEXT,
+                        time_limit_default INTEGER,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+
+                # Migrate existing row to 'guest'
+                cursor.execute("""
+                    INSERT OR IGNORE INTO preferences (
+                        username, spice_level, diet, avoid_ingredients,
+                        preferred_cuisines, time_limit_default, created_at, updated_at
+                    )
+                    SELECT 'guest', spice_level, diet, avoid_ingredients,
+                           preferred_cuisines, time_limit_default, created_at, updated_at
+                    FROM preferences_old
+                    WHERE id = 1
+                """)
+
+                # Drop old table
+                cursor.execute("DROP TABLE preferences_old")
+
+                logger.info("Migrated preferences to username-based schema")
+        else:
+            # Create new table with username PK
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS preferences (
+                    username TEXT PRIMARY KEY,
+                    spice_level TEXT DEFAULT 'medium',
+                    diet TEXT DEFAULT 'none',
+                    avoid_ingredients TEXT,
+                    preferred_cuisines TEXT,
+                    time_limit_default INTEGER,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
 
         conn.commit()
         conn.close()
@@ -50,21 +105,24 @@ class ProfileStore:
         """Load user preferences from database.
 
         Args:
-            user_id: User ID (reserved for Phase 2 multi-user support)
+            user_id: Username to load preferences for. Defaults to 'guest' if None.
 
         Returns:
             PreferenceProfile with user preferences, or default profile if none exists
         """
+        # Default to guest if no user_id provided
+        username = user_id or "guest"
+
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        cursor.execute("SELECT * FROM preferences WHERE id = 1")
+        cursor.execute("SELECT * FROM preferences WHERE username = ?", (username,))
         row = cursor.fetchone()
         conn.close()
 
         if row is None:
-            logger.info("No preferences found, returning defaults")
+            logger.info("No preferences found, returning defaults", username=username)
             return PreferenceProfile()
 
         # Parse JSON arrays
@@ -81,6 +139,7 @@ class ProfileStore:
 
         logger.info(
             "Loaded user preferences",
+            username=username,
             spice_level=profile.spice_level,
             diet=profile.diet,
             avoid_count=len(profile.avoid_ingredients),
@@ -88,12 +147,16 @@ class ProfileStore:
 
         return profile
 
-    def save(self, profile: PreferenceProfile) -> None:
+    def save(self, profile: PreferenceProfile, user_id: str | None = None) -> None:
         """Save user preferences to database.
 
         Args:
             profile: PreferenceProfile to save
+            user_id: Username to save preferences for. Defaults to 'guest' if None.
         """
+        # Default to guest if no user_id provided
+        username = user_id or "guest"
+
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
@@ -106,11 +169,12 @@ class ProfileStore:
         cursor.execute(
             """
             INSERT OR REPLACE INTO preferences (
-                id, spice_level, diet, avoid_ingredients, preferred_cuisines,
+                username, spice_level, diet, avoid_ingredients, preferred_cuisines,
                 time_limit_default, updated_at
-            ) VALUES (1, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
+                username,
                 profile.spice_level,
                 profile.diet,
                 avoid_ingredients_json,
@@ -123,19 +187,23 @@ class ProfileStore:
         conn.commit()
         conn.close()
 
-        logger.info("Saved user preferences", spice_level=profile.spice_level, diet=profile.diet)
+        logger.info("Saved user preferences", username=username, spice_level=profile.spice_level, diet=profile.diet)
 
-    def update(self, **updates) -> PreferenceProfile:
+    def update(self, user_id: str | None = None, **updates) -> PreferenceProfile:
         """Update specific preference fields.
 
         Args:
+            user_id: Username to update preferences for. Defaults to 'guest' if None.
             **updates: Fields to update (spice_level, diet, avoid_ingredients, etc.)
 
         Returns:
             Updated PreferenceProfile
         """
+        # Default to guest if no user_id provided
+        username = user_id or "guest"
+
         # Load current profile
-        profile = self.load()
+        profile = self.load(user_id=username)
 
         # Update fields
         for key, value in updates.items():
@@ -145,8 +213,8 @@ class ProfileStore:
                 logger.warning("Unknown preference field", field=key)
 
         # Save updated profile
-        self.save(profile)
+        self.save(profile, user_id=username)
 
-        logger.info("Updated user preferences", updates=list(updates.keys()))
+        logger.info("Updated user preferences", username=username, updates=list(updates.keys()))
 
         return profile

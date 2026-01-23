@@ -13,7 +13,10 @@ logger = get_logger(__name__)
 
 
 class SessionStore:
-    """Manages session state persistence in SQLite."""
+    """Manages session state persistence in SQLite.
+
+    Each user has their own sessions, tracked separately.
+    """
 
     def __init__(self, db_path: Path):
         """Initialize SessionStore with database path.
@@ -22,11 +25,15 @@ class SessionStore:
             db_path: Path to SQLite database file
         """
         self.db_path = db_path
-        self._current_session_id: str | None = None
+        # Track current session per user (dict instead of single string)
+        self._current_session_ids: dict[str, str] = {}
         self._ensure_table()
 
     def _ensure_table(self) -> None:
-        """Create sessions table if it doesn't exist."""
+        """Create sessions table if it doesn't exist.
+
+        Handles migration from old single-user schema to multi-user schema.
+        """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
@@ -44,6 +51,22 @@ class SessionStore:
             )
         """)
 
+        # Check if username column exists, add if missing (migration)
+        cursor.execute("PRAGMA table_info(sessions)")
+        columns = {col[1]: col for col in cursor.fetchall()}
+
+        if "username" not in columns:
+            logger.info("Adding username column to sessions table")
+            cursor.execute("ALTER TABLE sessions ADD COLUMN username TEXT")
+            # Assign existing rows to 'guest'
+            cursor.execute("UPDATE sessions SET username = 'guest' WHERE username IS NULL")
+
+        # Create index for efficient queries
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_sessions_username
+            ON sessions(username)
+        """)
+
         conn.commit()
         conn.close()
 
@@ -53,11 +76,14 @@ class SessionStore:
         """Create a new session with empty state.
 
         Args:
-            user_id: User ID (reserved for Phase 2 multi-user support)
+            user_id: Username to create session for. Defaults to 'guest' if None.
 
         Returns:
             Session ID (UUID string)
         """
+        # Default to guest if no user_id provided
+        username = user_id or "guest"
+
         session_id = str(uuid.uuid4())
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -68,18 +94,19 @@ class SessionStore:
             """
             INSERT INTO sessions (
                 id, ingredients_on_hand, avoid_tonight, goals,
-                time_limit, servings, rolling_summary, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                time_limit, servings, rolling_summary, created_at, updated_at, username
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (session_id, "[]", "[]", "[]", None, None, "", now, now),
+            (session_id, "[]", "[]", "[]", None, None, "", now, now, username),
         )
 
         conn.commit()
         conn.close()
 
-        self._current_session_id = session_id
+        # Track current session per user
+        self._current_session_ids[username] = session_id
 
-        logger.info("Created new session", session_id=session_id)
+        logger.info("Created new session", session_id=session_id, username=username)
 
         return session_id
 
@@ -227,21 +254,48 @@ class SessionStore:
         return row["rolling_summary"] or ""
 
     def get_or_create_current(self, user_id: str | None = None) -> tuple[str, SessionState]:
-        """Get current session or create new one.
+        """Get current session or create new one for a user.
 
         Args:
-            user_id: User ID (reserved for Phase 2 multi-user support)
+            user_id: Username to get/create session for. Defaults to 'guest' if None.
 
         Returns:
             Tuple of (session_id, SessionState)
         """
-        if self._current_session_id is not None:
-            session = self.get(self._current_session_id)
-            if session is not None:
-                return self._current_session_id, session
+        # Default to guest if no user_id provided
+        username = user_id or "guest"
 
-        # Create new session
-        session_id = self.create()
+        # Check if we have a current session for this user in memory
+        if username in self._current_session_ids:
+            session_id = self._current_session_ids[username]
+            session = self.get(session_id)
+            if session is not None:
+                return session_id, session
+
+        # Try to find existing session for this user in database
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT id FROM sessions
+            WHERE username = ?
+            ORDER BY updated_at DESC
+            LIMIT 1
+            """,
+            (username,),
+        )
+        row = cursor.fetchone()
+        conn.close()
+
+        if row:
+            session_id = row[0]
+            session = self.get(session_id)
+            if session is not None:
+                self._current_session_ids[username] = session_id
+                return session_id, session
+
+        # Create new session for this user
+        session_id = self.create(user_id=username)
         session = self.get(session_id)
 
         return session_id, session or SessionState()

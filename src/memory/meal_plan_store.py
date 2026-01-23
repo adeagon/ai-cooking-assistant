@@ -254,12 +254,14 @@ class MealPlanStore:
         self,
         status: Literal["draft", "active", "completed", "archived"],
         limit: int = 10,
+        user_id: str | None = None,
     ) -> list[MealPlan]:
-        """Get meal plans by status.
+        """Get meal plans by status for a user.
 
         Args:
             status: Plan status to filter by
             limit: Maximum number of plans to return
+            user_id: Username to get plans for. If None, returns plans for all users.
 
         Returns:
             List of MealPlan objects
@@ -268,15 +270,26 @@ class MealPlanStore:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        cursor.execute(
-            """
-            SELECT id FROM meal_plans
-            WHERE status = ?
-            ORDER BY updated_at DESC
-            LIMIT ?
-            """,
-            (status, limit),
-        )
+        if user_id:
+            cursor.execute(
+                """
+                SELECT id FROM meal_plans
+                WHERE status = ? AND user_id = ?
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (status, user_id, limit),
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT id FROM meal_plans
+                WHERE status = ?
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (status, limit),
+            )
 
         plan_ids = [row["id"] for row in cursor.fetchall()]
         conn.close()
@@ -284,13 +297,16 @@ class MealPlanStore:
         # Fetch full plan details for each
         return [self.get_plan(pid) for pid in plan_ids if self.get_plan(pid)]
 
-    def get_active_plan(self) -> MealPlan | None:
-        """Get the currently active meal plan.
+    def get_active_plan(self, user_id: str | None = None) -> MealPlan | None:
+        """Get the currently active meal plan for a user.
+
+        Args:
+            user_id: Username to get active plan for. Defaults to 'guest' if None.
 
         Returns:
             Active MealPlan or None if no active plan
         """
-        plans = self.get_plans_by_status("active", limit=1)
+        plans = self.get_plans_by_status("active", limit=1, user_id=user_id)
         return plans[0] if plans else None
 
     def update_plan_status(
@@ -406,11 +422,12 @@ class MealPlanStore:
             logger.warning("Plan not found for deletion", plan_id=plan_id)
             return False
 
-    def get_recent_plans(self, limit: int = 5) -> list[MealPlan]:
-        """Get recently updated meal plans.
+    def get_recent_plans(self, limit: int = 5, user_id: str | None = None) -> list[MealPlan]:
+        """Get recently updated meal plans for a user.
 
         Args:
             limit: Maximum number of plans to return
+            user_id: Username to get plans for. If None, returns plans for all users.
 
         Returns:
             List of MealPlan objects, most recently updated first
@@ -419,14 +436,25 @@ class MealPlanStore:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        cursor.execute(
-            """
-            SELECT id FROM meal_plans
-            ORDER BY updated_at DESC
-            LIMIT ?
-            """,
-            (limit,),
-        )
+        if user_id:
+            cursor.execute(
+                """
+                SELECT id FROM meal_plans
+                WHERE user_id = ?
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (user_id, limit),
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT id FROM meal_plans
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
 
         plan_ids = [row["id"] for row in cursor.fetchall()]
         conn.close()
@@ -540,17 +568,35 @@ class MealPlanStore:
         logger.info("Removed meal from plan", meal_id=meal_id, plan_id=plan_id)
         return True
 
-    def get_plan_count(self) -> int:
+    def get_plan_count(self, user_id: str | None = None) -> int:
         """Get total number of meal plans.
 
+        Args:
+            user_id: Username to count plans for. If None, counts all plans.
+
         Returns:
-            Count of all meal plans
+            Count of meal plans
         """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
-        cursor.execute("SELECT COUNT(*) FROM meal_plans")
+        if user_id:
+            cursor.execute("SELECT COUNT(*) FROM meal_plans WHERE user_id = ?", (user_id,))
+        else:
+            cursor.execute("SELECT COUNT(*) FROM meal_plans")
+
         count = cursor.fetchone()[0]
 
         conn.close()
         return count
+
+    def save_plan(self, plan: MealPlan) -> int:
+        """Save a meal plan (alias for create_plan).
+
+        Args:
+            plan: MealPlan object to save
+
+        Returns:
+            ID of the created plan
+        """
+        return self.create_plan(plan)
