@@ -56,12 +56,13 @@ class HistoryStore:
 
         logger.info("Cooking history table ensured", db_path=str(self.db_path))
 
-    def add_cooked(self, recipe_id: str, notes: str | None = None) -> int:
+    def add_cooked(self, recipe_id: str, notes: str | None = None, user_id: str | None = None) -> int:
         """Record a cooked recipe.
 
         Args:
             recipe_id: Recipe ID that was cooked
             notes: Optional user notes about the cooking experience
+            user_id: User ID (reserved for Phase 2 multi-user support)
 
         Returns:
             ID of the inserted history record

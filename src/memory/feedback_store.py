@@ -58,11 +58,12 @@ class FeedbackStore:
 
         logger.info("Recipe feedback table ensured", db_path=str(self.db_path))
 
-    def add_feedback(self, feedback: RecipeFeedback) -> int:
+    def add_feedback(self, feedback: RecipeFeedback, user_id: str | None = None) -> int:
         """Store recipe feedback.
 
         Args:
             feedback: RecipeFeedback object
+            user_id: User ID (reserved for Phase 2 multi-user support)
 
         Returns:
             ID of the inserted feedback record
@@ -98,11 +99,12 @@ class FeedbackStore:
 
         return feedback_id
 
-    def get_liked_recipe_ids(self, limit: int = 50) -> set[str]:
+    def get_liked_recipe_ids(self, limit: int = 50, user_id: str | None = None) -> set[str]:
         """Get recently liked recipe IDs for exclusion.
 
         Args:
             limit: Maximum number of recent likes to return
+            user_id: User ID (reserved for Phase 2 multi-user support)
 
         Returns:
             Set of recipe IDs that have been liked

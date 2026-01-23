@@ -46,8 +46,11 @@ class ProfileStore:
 
         logger.info("Preferences table ensured", db_path=str(self.db_path))
 
-    def load(self) -> PreferenceProfile:
+    def load(self, user_id: str | None = None) -> PreferenceProfile:
         """Load user preferences from database.
+
+        Args:
+            user_id: User ID (reserved for Phase 2 multi-user support)
 
         Returns:
             PreferenceProfile with user preferences, or default profile if none exists

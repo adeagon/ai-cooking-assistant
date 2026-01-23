@@ -57,13 +57,14 @@ class RecipeBoxStore:
 
         logger.info("Saved recipes table ensured", db_path=str(self.db_path))
 
-    def save_recipe(self, recipe_id: str, title: str, notes: str | None = None) -> int:
+    def save_recipe(self, recipe_id: str, title: str, notes: str | None = None, user_id: str | None = None) -> int:
         """Save a recipe to the Recipe Box.
 
         Args:
             recipe_id: Recipe ID to save
             title: Recipe title (for display without DB join)
             notes: Optional user notes about the recipe
+            user_id: User ID (reserved for Phase 2 multi-user support)
 
         Returns:
             ID of the inserted saved recipe record

@@ -47,7 +47,13 @@ def normalize_for_matching(text: str) -> str:
 
 
 @app.command()
-def chat():
+def chat(
+    user: str = typer.Option(
+        "guest",
+        "--user", "-u",
+        help="Start as specific user (for testing/automation)"
+    )
+):
     """Start an interactive recipe assistant chat session."""
     import asyncio
     from pathlib import Path
@@ -65,7 +71,7 @@ def chat():
         raise typer.Exit(1)
 
     # Run async chat session
-    asyncio.run(async_chat_session())
+    asyncio.run(async_chat_session(initial_user=user))
 
 
 def strip_articles(text: str) -> str:
@@ -702,8 +708,12 @@ def generate_and_display_grocery_list(meal_plan_store, settings, console: Consol
     console.print(f"\n[dim]Total: {total_items} items across {len(summary)} categories[/dim]")
 
 
-async def async_chat_session():
-    """Async chat session with LLM integration."""
+async def async_chat_session(initial_user: str = "guest"):
+    """Async chat session with LLM integration.
+
+    Args:
+        initial_user: Username to start session with (default: guest)
+    """
     from pathlib import Path
     from langchain_ollama import ChatOllama
     from src.retrieval.retriever import RecipeRetriever
@@ -715,18 +725,19 @@ async def async_chat_session():
     from src.memory import ProfileStore, SessionStore, RollingSummarizer, FeedbackStore, HistoryStore, RecipeBoxStore
     from src.domain.models import RecipeFeedback
     from src.ingest.build_db import get_recipe_by_id
+    from src.app.user_context import UserContext, UserRegistry
 
     console.print(Panel.fit(
         "[bold cyan]Recipe Assistant[/bold cyan]\n"
         f"Local recipe recommendation powered by RAG + {settings.ollama_model}\n"
         "[dim](See README for Modelfile setup to optimize behavior)[/dim]\n\n"
         "Type /commands for full list. Key commands:\n"
+        "  /login <name>  - Switch user (alex, caitlyn, family, guest, test)\n"
+        "  /whoami        - Show current user\n"
         "  /like <ref>    - Like a recipe\n"
         "  /show <ref>    - Show full recipe details\n"
         "  /save <ref>    - Save to Recipe Box\n"
-        "  /box           - View saved recipes\n"
         "  /mealplan      - Plan meals for the week\n"
-        "  /grocery       - Generate grocery list\n"
         "  /commands      - Show all commands\n"
         "  quit           - Exit the chat\n\n"
         "[dim]Tip: You can also say 'plan my dinners' or 'help me plan meals'[/dim]",
@@ -797,17 +808,37 @@ async def async_chat_session():
         from src.memory.meal_plan_store import MealPlanStore
         meal_plan_store = MealPlanStore(db_path=settings.sqlite_db_path)
 
-        # Load profile and session
-        profile = profile_store.load()
-        session_id, session = session_store.get_or_create_current()
+        # Initialize user context (defaults to guest, or uses --user flag)
+        validated_user = UserRegistry.normalize(initial_user)
+        if validated_user is None:
+            console.print(f"[red]Invalid user: {initial_user}. Using guest.[/red]")
+            validated_user = "guest"
+
+        user_context = UserContext(current_user=validated_user)
+
+        # Define state reset callback
+        def on_user_change(new_user: str) -> None:
+            nonlocal session_id, session, rolling_summary, last_recommended_cards, profile
+            session_id, session = session_store.get_or_create_current(user_id=new_user)
+            rolling_summary = ""
+            last_recommended_cards = []
+            profile = profile_store.load(user_id=new_user)
+            logger.info("User context reset", user=new_user, session_id=session_id)
+
+        user_context.set_on_user_change(on_user_change)
+
+        # Load initial user's profile and session
+        profile = profile_store.load(user_id=user_context.current_user)
+        session_id, session = session_store.get_or_create_current(user_id=user_context.current_user)
         rolling_summary = session_store.get_summary(session_id)
 
         # Track last recommended cards for feedback commands
         last_recommended_cards = []
 
-        console.print("[green]Ready![/green]\n")
+        console.print("[green]Ready![/green]")
+        console.print(f"[dim]{user_context.whoami()}[/dim]\n")
 
-        logger.info("Chat components initialized", session_id=session_id)
+        logger.info("Chat components initialized", user=user_context.current_user, session_id=session_id)
 
     except Exception as e:
         console.print(f"[red]ERROR: Failed to initialize chat: {e}[/red]")
@@ -825,13 +856,17 @@ async def async_chat_session():
             # Check for commands
             if user_input.strip().lower() in ("quit", "exit"):
                 console.print("[yellow]Goodbye![/yellow]")
-                logger.info("Chat session ended by user")
+                logger.info("Chat session ended by user", user=user_context.current_user)
                 break
 
             # /commands - show all available commands
             if user_input.strip().lower() in ("/commands", "/help"):
                 console.print(Panel.fit(
                     "[bold cyan]Available Commands[/bold cyan]\n\n"
+                    "[bold]Account:[/bold]\n"
+                    "  /login <name>    - Switch user (alex, caitlyn, family, guest, test)\n"
+                    "  /logout          - Switch back to guest\n"
+                    "  /whoami          - Show current user\n\n"
                     "[bold]Session:[/bold]\n"
                     "  /new             - Start a new session\n"
                     "  /prefs           - Show your preferences\n"
@@ -866,6 +901,31 @@ async def async_chat_session():
                 ))
                 continue
 
+            # /login - switch user
+            if user_input.strip().lower().startswith("/login"):
+                parts = user_input.split(maxsplit=1)
+                username = parts[1].strip() if len(parts) > 1 else ""
+                if not username:
+                    console.print("[yellow]Usage: /login <username>[/yellow]")
+                    console.print(f"[dim]Available: {', '.join(UserRegistry.get_all())}[/dim]")
+                    continue
+
+                success, message = user_context.login(username)
+                color = "green" if success else "red"
+                console.print(f"[{color}]{message}[/{color}]")
+                continue
+
+            # /logout - switch back to guest
+            if user_input.strip().lower() in ("/logout", "/signout"):
+                message = user_context.logout()
+                console.print(f"[green]{message}[/green]")
+                continue
+
+            # /whoami
+            if user_input.strip().lower() in ("/whoami", "/who"):
+                console.print(f"[cyan]{user_context.whoami()}[/cyan]")
+                continue
+
             # Try natural language intent classification (skip for explicit slash commands)
             if not user_input.strip().startswith("/"):
                 try:
@@ -892,11 +952,11 @@ async def async_chat_session():
                     # Fall through to normal chat processing
 
             if user_input.strip().lower() == "/new":
-                session_id = session_store.create()
+                session_id = session_store.create(user_id=user_context.current_user)
                 session = session_store.get(session_id)
                 rolling_summary = ""
                 console.print("[green]✓ Started new session[/green]")
-                logger.info("New session created", session_id=session_id)
+                logger.info("New session created", user=user_context.current_user, session_id=session_id)
                 continue
 
             if user_input.strip().lower() == "/prefs":
@@ -1268,7 +1328,7 @@ async def async_chat_session():
 
         except KeyboardInterrupt:
             console.print("\n[yellow]Goodbye![/yellow]")
-            logger.info("Chat session interrupted")
+            logger.info("Chat session interrupted", user=user_context.current_user)
             break
         except Exception as e:
             console.print(f"\n[red]Error:[/red] {e}")

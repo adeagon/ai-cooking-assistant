@@ -49,8 +49,11 @@ class SessionStore:
 
         logger.info("Sessions table ensured", db_path=str(self.db_path))
 
-    def create(self) -> str:
+    def create(self, user_id: str | None = None) -> str:
         """Create a new session with empty state.
+
+        Args:
+            user_id: User ID (reserved for Phase 2 multi-user support)
 
         Returns:
             Session ID (UUID string)
@@ -223,8 +226,11 @@ class SessionStore:
 
         return row["rolling_summary"] or ""
 
-    def get_or_create_current(self) -> tuple[str, SessionState]:
+    def get_or_create_current(self, user_id: str | None = None) -> tuple[str, SessionState]:
         """Get current session or create new one.
+
+        Args:
+            user_id: User ID (reserved for Phase 2 multi-user support)
 
         Returns:
             Tuple of (session_id, SessionState)

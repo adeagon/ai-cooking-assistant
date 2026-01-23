@@ -31,6 +31,9 @@ QUICK_INTENTS = {
         "show plan", "show my plan", "my meal plan", "current plan",
         "show meal plan", "view plan", "view meal plan",
     ],
+    "login": ["login", "log in", "sign in", "switch user"],
+    "logout": ["logout", "log out", "sign out"],
+    "whoami": ["whoami", "who am i", "current user", "which user"],
 }
 
 # Intent classification prompt
