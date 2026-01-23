@@ -47,7 +47,13 @@ def normalize_for_matching(text: str) -> str:
 
 
 @app.command()
-def chat():
+def chat(
+    user: str = typer.Option(
+        "guest",
+        "--user", "-u",
+        help="Start as specific user (for testing/automation)"
+    )
+):
     """Start an interactive recipe assistant chat session."""
     import asyncio
     from pathlib import Path
@@ -65,7 +71,7 @@ def chat():
         raise typer.Exit(1)
 
     # Run async chat session
-    asyncio.run(async_chat_session())
+    asyncio.run(async_chat_session(initial_user=user))
 
 
 def strip_articles(text: str) -> str:
@@ -158,12 +164,14 @@ def display_full_recipe(recipe, console: Console):
     ))
 
 
-def update_learned_preferences(feedback_store, profile_store, console: Console | None = None) -> bool:
+def update_learned_preferences(
+    feedback_store, profile_store, console: Console | None = None
+) -> bool:
     """Update user profile with preferences learned from feedback.
 
     Args:
-        feedback_store: FeedbackStore instance
-        profile_store: ProfileStore instance
+        feedback_store: FeedbackStore instance (user-bound)
+        profile_store: ProfileStore instance (user-bound)
         console: Optional console for output
 
     Returns:
@@ -200,18 +208,18 @@ def execute_intent(
     session_store,
     session_id: str,
     settings,
-    console: Console
+    console: Console,
 ) -> bool:
     """Execute detected intent command.
 
     Args:
         intent_result: IntentClassification object
         last_cards: List of last recommended RecipeCard objects
-        feedback_store: FeedbackStore instance
-        history_store: HistoryStore instance
-        recipe_box_store: RecipeBoxStore instance
-        profile_store: ProfileStore instance
-        session_store: SessionStore instance
+        feedback_store: FeedbackStore instance (user-bound)
+        history_store: HistoryStore instance (user-bound)
+        recipe_box_store: RecipeBoxStore instance (user-bound)
+        profile_store: ProfileStore instance (user-bound)
+        session_store: SessionStore instance (user-bound)
         session_id: Current session ID
         settings: Application settings
         console: Rich console for output
@@ -257,7 +265,7 @@ def execute_intent(
     if intent == "new":
         new_session_id = session_store.create()
         console.print("[green]✓ Started new session[/green]")
-        logger.info("New session created", session_id=new_session_id)
+        logger.info("New session created", session_id=new_session_id, user=session_store.user)
         # Note: session_id update would need to be handled by caller
         return True
 
@@ -475,15 +483,15 @@ async def handle_mealplan_command(
     recipe_box_store,
     meal_plan_store,
     settings,
-    console: Console
+    console: Console,
 ):
     """Handle the /mealplan command to generate a meal plan.
 
     Args:
         input_text: Optional constraints from user (e.g., "5 vegetarian dinners")
         profile: User's preference profile
-        recipe_box_store: RecipeBoxStore for saved recipes
-        meal_plan_store: MealPlanStore for storing plans
+        recipe_box_store: RecipeBoxStore for saved recipes (user-bound)
+        meal_plan_store: MealPlanStore for storing plans (user-bound)
         settings: Application settings
         console: Rich console for output
     """
@@ -525,7 +533,7 @@ async def handle_mealplan_command(
     console.print("\n[dim]Generating plan...[/dim]")
 
     try:
-        # Get saved recipes from Recipe Box
+        # Get saved recipes from Recipe Box (user-bound store)
         saved_recipes = recipe_box_store.get_saved_recipes(limit=100)
         box_recipe_ids = {r.recipe_id for r in saved_recipes}
 
@@ -551,6 +559,7 @@ async def handle_mealplan_command(
         end_date = start_date + timedelta(days=constraints.days - 1)
 
         plan = MealPlan(
+            user_id=meal_plan_store.user,
             start_date=start_date,
             end_date=end_date,
             meal_types=constraints.meal_types or ["dinner"],
@@ -599,16 +608,16 @@ async def handle_mealplan_command(
 
 
 def display_current_meal_plan(meal_plan_store, settings, console: Console):
-    """Display the current/most recent meal plan.
+    """Display the current/most recent meal plan for this user.
 
     Args:
-        meal_plan_store: MealPlanStore instance
+        meal_plan_store: MealPlanStore instance (user-bound)
         settings: Application settings
         console: Rich console for output
     """
     from src.ingest.build_db import get_recipe_by_id
 
-    # Get most recent active or draft plan
+    # Get most recent active or draft plan (user-bound store)
     plans = meal_plan_store.get_recent_plans(limit=1)
     if not plans:
         console.print("[yellow]No meal plans found. Use /mealplan to create one.[/yellow]")
@@ -650,14 +659,14 @@ def generate_and_display_grocery_list(meal_plan_store, settings, console: Consol
     """Generate and display grocery list for current meal plan.
 
     Args:
-        meal_plan_store: MealPlanStore instance
+        meal_plan_store: MealPlanStore instance (user-bound)
         settings: Application settings
         console: Rich console for output
     """
     from src.planning.grocery_list import GroceryListGenerator
     from src.ingest.build_db import get_recipe_by_id
 
-    # Get most recent plan
+    # Get most recent plan (user-bound store)
     plans = meal_plan_store.get_recent_plans(limit=1)
     if not plans:
         console.print("[yellow]No meal plans found. Use /mealplan to create one first.[/yellow]")
@@ -702,8 +711,12 @@ def generate_and_display_grocery_list(meal_plan_store, settings, console: Consol
     console.print(f"\n[dim]Total: {total_items} items across {len(summary)} categories[/dim]")
 
 
-async def async_chat_session():
-    """Async chat session with LLM integration."""
+async def async_chat_session(initial_user: str = "guest"):
+    """Async chat session with LLM integration.
+
+    Args:
+        initial_user: Username to start session with (default: guest)
+    """
     from pathlib import Path
     from langchain_ollama import ChatOllama
     from src.retrieval.retriever import RecipeRetriever
@@ -715,18 +728,19 @@ async def async_chat_session():
     from src.memory import ProfileStore, SessionStore, RollingSummarizer, FeedbackStore, HistoryStore, RecipeBoxStore
     from src.domain.models import RecipeFeedback
     from src.ingest.build_db import get_recipe_by_id
+    from src.app.user_context import UserContext, UserRegistry
 
     console.print(Panel.fit(
         "[bold cyan]Recipe Assistant[/bold cyan]\n"
         f"Local recipe recommendation powered by RAG + {settings.ollama_model}\n"
         "[dim](See README for Modelfile setup to optimize behavior)[/dim]\n\n"
         "Type /commands for full list. Key commands:\n"
+        "  /login <name>  - Switch user (alex, caitlyn, family, guest, test)\n"
+        "  /whoami        - Show current user\n"
         "  /like <ref>    - Like a recipe\n"
         "  /show <ref>    - Show full recipe details\n"
         "  /save <ref>    - Save to Recipe Box\n"
-        "  /box           - View saved recipes\n"
         "  /mealplan      - Plan meals for the week\n"
-        "  /grocery       - Generate grocery list\n"
         "  /commands      - Show all commands\n"
         "  quit           - Exit the chat\n\n"
         "[dim]Tip: You can also say 'plan my dinners' or 'help me plan meals'[/dim]",
@@ -785,19 +799,55 @@ async def async_chat_session():
             settings=settings
         )
 
-        # Initialize memory stores
-        profile_store = ProfileStore(db_path=settings.sqlite_db_path)
-        session_store = SessionStore(db_path=settings.sqlite_db_path)
-        feedback_store = FeedbackStore(db_path=settings.sqlite_db_path)
-        history_store = HistoryStore(db_path=settings.sqlite_db_path)
-        recipe_box_store = RecipeBoxStore(db_path=settings.sqlite_db_path)
+        # Initialize store factory and get user-bound stores
+        from src.memory.store_factory import StoreFactory
+        store_factory = StoreFactory(db_path=settings.sqlite_db_path)
         summarizer = RollingSummarizer()
 
-        # Initialize meal plan store
-        from src.memory.meal_plan_store import MealPlanStore
-        meal_plan_store = MealPlanStore(db_path=settings.sqlite_db_path)
+        # Initialize user context (defaults to guest, or uses --user flag)
+        validated_user = UserRegistry.normalize(initial_user)
+        if validated_user is None:
+            console.print(f"[red]Invalid user: {initial_user}. Using guest.[/red]")
+            validated_user = "guest"
 
-        # Load profile and session
+        user_context = UserContext(current_user=validated_user)
+
+        # Get stores for initial user
+        stores = store_factory.get_stores(user_context.current_user)
+        profile_store = stores.profile
+        session_store = stores.session
+        feedback_store = stores.feedback
+        history_store = stores.history
+        recipe_box_store = stores.recipe_box
+        meal_plan_store = stores.meal_plan
+
+        # Define state reset callback for user switching
+        def on_user_change(new_user: str) -> None:
+            nonlocal stores, profile_store, session_store, feedback_store, history_store
+            nonlocal recipe_box_store, meal_plan_store, session_id, session, profile
+            nonlocal rolling_summary, last_recommended_cards
+
+            # Get (or create) cached stores for new user
+            stores = store_factory.get_stores(new_user)
+            profile_store = stores.profile
+            session_store = stores.session
+            feedback_store = stores.feedback
+            history_store = stores.history
+            recipe_box_store = stores.recipe_box
+            meal_plan_store = stores.meal_plan
+
+            # Reset session state (important: creates new session for this login)
+            session_id, session = session_store.get_or_create_current()
+            profile = profile_store.load()
+            rolling_summary = ""
+            last_recommended_cards = []
+
+            console.print(f"[green]✓ Logged in as {new_user}. Started a new session.[/green]")
+            logger.info("User context reset", user=new_user, session_id=session_id)
+
+        user_context.set_on_user_change(on_user_change)
+
+        # Load initial user's profile and session
         profile = profile_store.load()
         session_id, session = session_store.get_or_create_current()
         rolling_summary = session_store.get_summary(session_id)
@@ -805,9 +855,11 @@ async def async_chat_session():
         # Track last recommended cards for feedback commands
         last_recommended_cards = []
 
-        console.print("[green]Ready![/green]\n")
+        console.print("[green]Ready![/green]")
+        console.print(f"[dim]{user_context.whoami()}[/dim]")
+        console.print("[dim]Multi-user mode enabled. Use /login <name> to switch users.[/dim]\n")
 
-        logger.info("Chat components initialized", session_id=session_id)
+        logger.info("Chat components initialized", user=user_context.current_user, session_id=session_id)
 
     except Exception as e:
         console.print(f"[red]ERROR: Failed to initialize chat: {e}[/red]")
@@ -825,13 +877,17 @@ async def async_chat_session():
             # Check for commands
             if user_input.strip().lower() in ("quit", "exit"):
                 console.print("[yellow]Goodbye![/yellow]")
-                logger.info("Chat session ended by user")
+                logger.info("Chat session ended by user", user=user_context.current_user)
                 break
 
             # /commands - show all available commands
             if user_input.strip().lower() in ("/commands", "/help"):
                 console.print(Panel.fit(
                     "[bold cyan]Available Commands[/bold cyan]\n\n"
+                    "[bold]Account:[/bold]\n"
+                    "  /login <name>    - Switch user (alex, caitlyn, family, guest, test)\n"
+                    "  /logout          - Switch back to guest\n"
+                    "  /whoami          - Show current user\n\n"
                     "[bold]Session:[/bold]\n"
                     "  /new             - Start a new session\n"
                     "  /prefs           - Show your preferences\n"
@@ -866,6 +922,31 @@ async def async_chat_session():
                 ))
                 continue
 
+            # /login - switch user
+            if user_input.strip().lower().startswith("/login"):
+                parts = user_input.split(maxsplit=1)
+                username = parts[1].strip() if len(parts) > 1 else ""
+                if not username:
+                    console.print("[yellow]Usage: /login <username>[/yellow]")
+                    console.print(f"[dim]Available: {', '.join(UserRegistry.get_all())}[/dim]")
+                    continue
+
+                success, message = user_context.login(username)
+                color = "green" if success else "red"
+                console.print(f"[{color}]{message}[/{color}]")
+                continue
+
+            # /logout - switch back to guest
+            if user_input.strip().lower() in ("/logout", "/signout"):
+                message = user_context.logout()
+                console.print(f"[green]{message}[/green]")
+                continue
+
+            # /whoami
+            if user_input.strip().lower() in ("/whoami", "/who"):
+                console.print(f"[cyan]{user_context.whoami()}[/cyan]")
+                continue
+
             # Try natural language intent classification (skip for explicit slash commands)
             if not user_input.strip().startswith("/"):
                 try:
@@ -882,7 +963,7 @@ async def async_chat_session():
                         session_store,
                         session_id,
                         settings,
-                        console
+                        console,
                     ):
                         # Intent was executed, continue to next input
                         continue
@@ -896,7 +977,7 @@ async def async_chat_session():
                 session = session_store.get(session_id)
                 rolling_summary = ""
                 console.print("[green]✓ Started new session[/green]")
-                logger.info("New session created", session_id=session_id)
+                logger.info("New session created", user=session_store.user, session_id=session_id)
                 continue
 
             if user_input.strip().lower() == "/prefs":
@@ -1203,7 +1284,7 @@ async def async_chat_session():
                     recipe_box_store=recipe_box_store,
                     meal_plan_store=meal_plan_store,
                     settings=settings,
-                    console=console
+                    console=console,
                 )
                 continue
 
@@ -1221,7 +1302,7 @@ async def async_chat_session():
             if not user_input.strip():
                 continue
 
-            # Compute exclusion set from feedback and history
+            # Compute exclusion set from feedback and history (user-bound stores)
             exclude_ids = (
                 feedback_store.get_liked_recipe_ids(limit=20) |
                 feedback_store.get_disliked_recipe_ids() |
@@ -1264,17 +1345,17 @@ async def async_chat_session():
             rolling_summary = summarizer.update_summary(rolling_summary, constraints, user_input)
             session_store.update_summary(session_id, rolling_summary)
 
-            logger.info("Processed user turn", input_length=len(user_input), response_length=len(response))
+            logger.info("Processed user turn", user=user_context.current_user, input_length=len(user_input), response_length=len(response))
 
         except KeyboardInterrupt:
             console.print("\n[yellow]Goodbye![/yellow]")
-            logger.info("Chat session interrupted")
+            logger.info("Chat session interrupted", user=user_context.current_user)
             break
         except Exception as e:
             console.print(f"\n[red]Error:[/red] {e}")
             if "Connection" in str(e) or "connect" in str(e).lower():
                 console.print("[yellow]Lost connection to Ollama. Is it still running?[/yellow]")
-            logger.exception("Chat error")
+            logger.exception("Chat error", user=user_context.current_user)
 
 
 @app.command()

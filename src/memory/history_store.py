@@ -9,24 +9,23 @@ from src.memory import _sqlite_compat  # noqa: F401
 
 from src.app.logging_config import get_logger
 from src.domain.models import CookingHistoryEntry
+from src.memory.base_store import BaseUserBoundStore
 
 logger = get_logger(__name__)
 
 
-class HistoryStore:
-    """Manages persistent storage of cooking history in SQLite."""
+class HistoryStore(BaseUserBoundStore):
+    """Manages persistent storage of cooking history in SQLite.
 
-    def __init__(self, db_path: Path):
-        """Initialize HistoryStore with database path.
-
-        Args:
-            db_path: Path to SQLite database file
-        """
-        self.db_path = db_path
-        self._ensure_table()
+    Each store instance is bound to a specific user at instantiation.
+    The user cannot be changed after initialization.
+    """
 
     def _ensure_table(self) -> None:
-        """Create cooking history table and index if they don't exist."""
+        """Create cooking history table and index if they don't exist.
+
+        Handles migration from old single-user schema to multi-user schema.
+        """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
@@ -40,7 +39,17 @@ class HistoryStore:
             )
         """)
 
-        # Create index for efficient queries
+        # Check if username column exists, add if missing (migration)
+        cursor.execute("PRAGMA table_info(cooking_history)")
+        columns = {col[1]: col for col in cursor.fetchall()}
+
+        if "username" not in columns:
+            logger.info("Adding username column to cooking_history table")
+            cursor.execute("ALTER TABLE cooking_history ADD COLUMN username TEXT")
+            # Assign existing rows to 'guest'
+            cursor.execute("UPDATE cooking_history SET username = 'guest' WHERE username IS NULL")
+
+        # Create indexes for efficient queries
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_history_recipe
             ON cooking_history(recipe_id)
@@ -49,6 +58,11 @@ class HistoryStore:
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_history_cooked_at
             ON cooking_history(cooked_at)
+        """)
+
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_history_username
+            ON cooking_history(username)
         """)
 
         conn.commit()
@@ -71,17 +85,17 @@ class HistoryStore:
 
         cursor.execute(
             """
-            INSERT INTO cooking_history (recipe_id, cooked_at, notes)
-            VALUES (?, ?, ?)
+            INSERT INTO cooking_history (recipe_id, cooked_at, notes, username)
+            VALUES (?, ?, ?, ?)
             """,
-            (recipe_id, datetime.now(), notes),
+            (recipe_id, datetime.now(), notes, self.user),
         )
 
         history_id = cursor.lastrowid
         conn.commit()
         conn.close()
 
-        logger.info("Recorded cooked recipe", history_id=history_id, recipe_id=recipe_id)
+        logger.info("Recorded cooked recipe", history_id=history_id, recipe_id=recipe_id, user=self.user)
 
         return history_id
 
@@ -104,9 +118,9 @@ class HistoryStore:
             """
             SELECT DISTINCT recipe_id
             FROM cooking_history
-            WHERE cooked_at >= ?
+            WHERE cooked_at >= ? AND username = ?
             """,
-            (cutoff_date,),
+            (cutoff_date, self.user),
         )
 
         recipe_ids = {row["recipe_id"] for row in cursor.fetchall()}
@@ -116,6 +130,7 @@ class HistoryStore:
             "Retrieved recently cooked recipe IDs",
             count=len(recipe_ids),
             days=days,
+            user=self.user,
         )
         return recipe_ids
 
@@ -136,10 +151,11 @@ class HistoryStore:
             """
             SELECT id, recipe_id, cooked_at, notes
             FROM cooking_history
+            WHERE username = ?
             ORDER BY cooked_at DESC
             LIMIT ?
             """,
-            (limit,),
+            (self.user, limit),
         )
 
         history = [
@@ -157,7 +173,7 @@ class HistoryStore:
         return history
 
     def get_cooking_count(self, recipe_id: str) -> int:
-        """Get number of times a recipe has been cooked.
+        """Get number of times a recipe has been cooked by this user.
 
         Args:
             recipe_id: Recipe ID to query
@@ -172,9 +188,9 @@ class HistoryStore:
             """
             SELECT COUNT(*) as count
             FROM cooking_history
-            WHERE recipe_id = ?
+            WHERE recipe_id = ? AND username = ?
             """,
-            (recipe_id,),
+            (recipe_id, self.user),
         )
 
         result = cursor.fetchone()

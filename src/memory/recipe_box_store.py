@@ -9,39 +9,84 @@ from src.memory import _sqlite_compat  # noqa: F401
 
 from src.app.logging_config import get_logger
 from src.domain.models import SavedRecipe
+from src.memory.base_store import BaseUserBoundStore
 
 logger = get_logger(__name__)
 
 
-class RecipeBoxStore:
-    """Manages persistent storage of saved recipes in SQLite."""
+class RecipeBoxStore(BaseUserBoundStore):
+    """Manages persistent storage of saved recipes in SQLite.
 
-    def __init__(self, db_path: Path):
-        """Initialize RecipeBoxStore with database path.
-
-        Args:
-            db_path: Path to SQLite database file
-        """
-        self.db_path = db_path
-        self._ensure_table()
+    Each store instance is bound to a specific user at instantiation.
+    The user cannot be changed after initialization.
+    """
 
     def _ensure_table(self) -> None:
-        """Create saved recipes table and index if they don't exist."""
+        """Create saved recipes table and index if they don't exist.
+
+        Handles migration from old single-user schema to multi-user schema.
+        """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS saved_recipes (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                recipe_id TEXT NOT NULL UNIQUE,
-                title TEXT NOT NULL,
-                saved_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                notes TEXT,
-                FOREIGN KEY (recipe_id) REFERENCES recipes(recipe_id)
-            )
-        """)
+        # Check if table exists and has old schema (no username)
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='saved_recipes'"
+        )
+        table_exists = cursor.fetchone() is not None
 
-        # Create index for efficient queries
+        if table_exists:
+            # Check for old schema (no username column)
+            cursor.execute("PRAGMA table_info(saved_recipes)")
+            columns = {col[1]: col for col in cursor.fetchall()}
+
+            if "username" not in columns:
+                logger.info("Migrating saved_recipes table to multi-user schema")
+
+                # Rename old table
+                cursor.execute("ALTER TABLE saved_recipes RENAME TO saved_recipes_old")
+
+                # Create new table with username and composite unique constraint
+                cursor.execute("""
+                    CREATE TABLE saved_recipes (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        username TEXT NOT NULL DEFAULT 'guest',
+                        recipe_id TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        saved_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        notes TEXT,
+                        UNIQUE(username, recipe_id),
+                        FOREIGN KEY (recipe_id) REFERENCES recipes(recipe_id)
+                    )
+                """)
+
+                # Migrate data (assign all to 'guest')
+                cursor.execute("""
+                    INSERT INTO saved_recipes (id, username, recipe_id, title, saved_at, notes)
+                    SELECT id, 'guest', recipe_id, title, saved_at, notes
+                    FROM saved_recipes_old
+                """)
+
+                # Drop old table
+                cursor.execute("DROP TABLE saved_recipes_old")
+
+                logger.info("Migrated saved_recipes to multi-user schema")
+        else:
+            # Create new table with username and composite unique constraint
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS saved_recipes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT NOT NULL DEFAULT 'guest',
+                    recipe_id TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    saved_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    notes TEXT,
+                    UNIQUE(username, recipe_id),
+                    FOREIGN KEY (recipe_id) REFERENCES recipes(recipe_id)
+                )
+            """)
+
+        # Create indexes for efficient queries
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_saved_recipe
             ON saved_recipes(recipe_id)
@@ -50,6 +95,11 @@ class RecipeBoxStore:
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_saved_at
             ON saved_recipes(saved_at)
+        """)
+
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_saved_recipes_username
+            ON saved_recipes(username)
         """)
 
         conn.commit()
@@ -69,7 +119,7 @@ class RecipeBoxStore:
             ID of the inserted saved recipe record
 
         Raises:
-            sqlite3.IntegrityError: If recipe is already saved (UNIQUE constraint)
+            sqlite3.IntegrityError: If recipe is already saved by this user
         """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -77,20 +127,20 @@ class RecipeBoxStore:
         try:
             cursor.execute(
                 """
-                INSERT INTO saved_recipes (recipe_id, title, saved_at, notes)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO saved_recipes (username, recipe_id, title, saved_at, notes)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                (recipe_id, title, datetime.now(), notes),
+                (self.user, recipe_id, title, datetime.now(), notes),
             )
 
             saved_id = cursor.lastrowid
             conn.commit()
 
-            logger.info("Saved recipe to box", saved_id=saved_id, recipe_id=recipe_id)
+            logger.info("Saved recipe to box", saved_id=saved_id, recipe_id=recipe_id, user=self.user)
             return saved_id
 
         except sqlite3.IntegrityError as e:
-            logger.warning("Recipe already saved", recipe_id=recipe_id)
+            logger.warning("Recipe already saved", recipe_id=recipe_id, user=self.user)
             raise e
         finally:
             conn.close()
@@ -112,10 +162,11 @@ class RecipeBoxStore:
             """
             SELECT id, recipe_id, title, saved_at, notes
             FROM saved_recipes
+            WHERE username = ?
             ORDER BY saved_at DESC
             LIMIT ?
             """,
-            (limit,),
+            (self.user, limit),
         )
 
         saved_recipes = [
@@ -148,9 +199,9 @@ class RecipeBoxStore:
         cursor.execute(
             """
             DELETE FROM saved_recipes
-            WHERE recipe_id = ?
+            WHERE recipe_id = ? AND username = ?
             """,
-            (recipe_id,),
+            (recipe_id, self.user),
         )
 
         rows_affected = cursor.rowcount
@@ -158,10 +209,10 @@ class RecipeBoxStore:
         conn.close()
 
         if rows_affected > 0:
-            logger.info("Removed recipe from box", recipe_id=recipe_id)
+            logger.info("Removed recipe from box", recipe_id=recipe_id, user=self.user)
             return True
         else:
-            logger.warning("Recipe not found in box", recipe_id=recipe_id)
+            logger.warning("Recipe not found in box", recipe_id=recipe_id, user=self.user)
             return False
 
     def is_saved(self, recipe_id: str) -> bool:
@@ -180,9 +231,9 @@ class RecipeBoxStore:
             """
             SELECT COUNT(*) as count
             FROM saved_recipes
-            WHERE recipe_id = ?
+            WHERE recipe_id = ? AND username = ?
             """,
-            (recipe_id,),
+            (recipe_id, self.user),
         )
 
         result = cursor.fetchone()

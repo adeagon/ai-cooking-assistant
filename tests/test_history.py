@@ -91,14 +91,14 @@ class TestHistoryStore:
         # Manually insert old cooked entry (15 days ago)
         old_date = datetime.now() - timedelta(days=15)
         cursor.execute("""
-            INSERT INTO cooking_history (recipe_id, cooked_at)
-            VALUES ('123', ?)
+            INSERT INTO cooking_history (recipe_id, cooked_at, username)
+            VALUES ('123', ?, 'guest')
         """, (old_date,))
 
         # Add recent entry (today)
         cursor.execute("""
-            INSERT INTO cooking_history (recipe_id, cooked_at)
-            VALUES ('456', ?)
+            INSERT INTO cooking_history (recipe_id, cooked_at, username)
+            VALUES ('456', ?, 'guest')
         """, (datetime.now(),))
 
         conn.commit()

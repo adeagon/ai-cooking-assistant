@@ -8,25 +8,34 @@ from pathlib import Path
 
 from src.app.logging_config import get_logger
 from src.domain.models import SessionState
+from src.memory.base_store import BaseUserBoundStore
 
 logger = get_logger(__name__)
 
 
-class SessionStore:
-    """Manages session state persistence in SQLite."""
+class SessionStore(BaseUserBoundStore):
+    """Manages session state persistence in SQLite.
 
-    def __init__(self, db_path: Path):
-        """Initialize SessionStore with database path.
+    Each store instance is bound to a specific user at instantiation.
+    The user cannot be changed after initialization.
+    """
+
+    def __init__(self, db_path: Path, username: str = "guest"):
+        """Initialize SessionStore bound to a specific user.
 
         Args:
             db_path: Path to SQLite database file
+            username: Username this store is bound to (default: "guest")
         """
-        self.db_path = db_path
+        # Track current session for this user (single session per store instance)
         self._current_session_id: str | None = None
-        self._ensure_table()
+        super().__init__(db_path, username)
 
     def _ensure_table(self) -> None:
-        """Create sessions table if it doesn't exist."""
+        """Create sessions table if it doesn't exist.
+
+        Handles migration from old single-user schema to multi-user schema.
+        """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
@@ -42,6 +51,22 @@ class SessionStore:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
+        """)
+
+        # Check if username column exists, add if missing (migration)
+        cursor.execute("PRAGMA table_info(sessions)")
+        columns = {col[1]: col for col in cursor.fetchall()}
+
+        if "username" not in columns:
+            logger.info("Adding username column to sessions table")
+            cursor.execute("ALTER TABLE sessions ADD COLUMN username TEXT")
+            # Assign existing rows to 'guest'
+            cursor.execute("UPDATE sessions SET username = 'guest' WHERE username IS NULL")
+
+        # Create index for efficient queries
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_sessions_username
+            ON sessions(username)
         """)
 
         conn.commit()
@@ -65,18 +90,19 @@ class SessionStore:
             """
             INSERT INTO sessions (
                 id, ingredients_on_hand, avoid_tonight, goals,
-                time_limit, servings, rolling_summary, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                time_limit, servings, rolling_summary, created_at, updated_at, username
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (session_id, "[]", "[]", "[]", None, None, "", now, now),
+            (session_id, "[]", "[]", "[]", None, None, "", now, now, self.user),
         )
 
         conn.commit()
         conn.close()
 
+        # Track current session for this store instance
         self._current_session_id = session_id
 
-        logger.info("Created new session", session_id=session_id)
+        logger.info("Created new session", session_id=session_id, user=self.user)
 
         return session_id
 
@@ -224,17 +250,40 @@ class SessionStore:
         return row["rolling_summary"] or ""
 
     def get_or_create_current(self) -> tuple[str, SessionState]:
-        """Get current session or create new one.
+        """Get current session or create new one for this user.
 
         Returns:
             Tuple of (session_id, SessionState)
         """
+        # Check if we have a current session in memory
         if self._current_session_id is not None:
             session = self.get(self._current_session_id)
             if session is not None:
                 return self._current_session_id, session
 
-        # Create new session
+        # Try to find existing session for this user in database
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT id FROM sessions
+            WHERE username = ?
+            ORDER BY updated_at DESC
+            LIMIT 1
+            """,
+            (self.user,),
+        )
+        row = cursor.fetchone()
+        conn.close()
+
+        if row:
+            session_id = row[0]
+            session = self.get(session_id)
+            if session is not None:
+                self._current_session_id = session_id
+                return session_id, session
+
+        # Create new session for this user
         session_id = self.create()
         session = self.get(session_id)
 

@@ -286,7 +286,7 @@ class IntentClassification(BaseModel):
         "save", "like", "dislike", "rate", "show", "cooked",
         "history", "box", "unsave", "new", "prefs", "commands",
         "addpref", "filter_previous", "mealplan", "show_plan",
-        "grocery_list", "conversation"
+        "grocery_list", "login", "logout", "whoami", "conversation"
     ]
     confidence: Literal["high", "medium", "low"]
     recipe_reference: str | None = None  # e.g., "first one", "2", "the pasta", "it"

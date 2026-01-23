@@ -9,24 +9,23 @@ from src.memory import _sqlite_compat  # noqa: F401
 
 from src.app.logging_config import get_logger
 from src.domain.models import RecipeFeedback
+from src.memory.base_store import BaseUserBoundStore
 
 logger = get_logger(__name__)
 
 
-class FeedbackStore:
-    """Manages persistent storage of recipe feedback (likes, dislikes, ratings) in SQLite."""
+class FeedbackStore(BaseUserBoundStore):
+    """Manages persistent storage of recipe feedback (likes, dislikes, ratings) in SQLite.
 
-    def __init__(self, db_path: Path):
-        """Initialize FeedbackStore with database path.
-
-        Args:
-            db_path: Path to SQLite database file
-        """
-        self.db_path = db_path
-        self._ensure_table()
+    Each store instance is bound to a specific user at instantiation.
+    The user cannot be changed after initialization.
+    """
 
     def _ensure_table(self) -> None:
-        """Create feedback table and indexes if they don't exist."""
+        """Create feedback table and indexes if they don't exist.
+
+        Handles migration from old single-user schema to multi-user schema.
+        """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
@@ -42,6 +41,16 @@ class FeedbackStore:
             )
         """)
 
+        # Check if username column exists, add if missing (migration)
+        cursor.execute("PRAGMA table_info(recipe_feedback)")
+        columns = {col[1]: col for col in cursor.fetchall()}
+
+        if "username" not in columns:
+            logger.info("Adding username column to recipe_feedback table")
+            cursor.execute("ALTER TABLE recipe_feedback ADD COLUMN username TEXT")
+            # Assign existing rows to 'guest'
+            cursor.execute("UPDATE recipe_feedback SET username = 'guest' WHERE username IS NULL")
+
         # Create indexes for efficient queries
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_feedback_recipe
@@ -51,6 +60,11 @@ class FeedbackStore:
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_feedback_type
             ON recipe_feedback(feedback_type)
+        """)
+
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_feedback_username
+            ON recipe_feedback(username)
         """)
 
         conn.commit()
@@ -73,8 +87,8 @@ class FeedbackStore:
         cursor.execute(
             """
             INSERT INTO recipe_feedback
-                (recipe_id, feedback_type, rating, session_id, created_at)
-            VALUES (?, ?, ?, ?, ?)
+                (recipe_id, feedback_type, rating, session_id, created_at, username)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
                 feedback.recipe_id,
@@ -82,6 +96,7 @@ class FeedbackStore:
                 feedback.rating,
                 feedback.session_id,
                 feedback.created_at or datetime.now(),
+                self.user,
             ),
         )
 
@@ -94,6 +109,7 @@ class FeedbackStore:
             feedback_id=feedback_id,
             recipe_id=feedback.recipe_id,
             feedback_type=feedback.feedback_type,
+            user=self.user,
         )
 
         return feedback_id
@@ -115,17 +131,17 @@ class FeedbackStore:
             """
             SELECT DISTINCT recipe_id
             FROM recipe_feedback
-            WHERE feedback_type = 'like'
+            WHERE feedback_type = 'like' AND username = ?
             ORDER BY created_at DESC
             LIMIT ?
             """,
-            (limit,),
+            (self.user, limit),
         )
 
         recipe_ids = {row["recipe_id"] for row in cursor.fetchall()}
         conn.close()
 
-        logger.debug("Retrieved liked recipe IDs", count=len(recipe_ids))
+        logger.debug("Retrieved liked recipe IDs", count=len(recipe_ids), user=self.user)
         return recipe_ids
 
     def get_disliked_recipe_ids(self) -> set[str]:
@@ -142,18 +158,19 @@ class FeedbackStore:
             """
             SELECT DISTINCT recipe_id
             FROM recipe_feedback
-            WHERE feedback_type = 'dislike'
-            """
+            WHERE feedback_type = 'dislike' AND username = ?
+            """,
+            (self.user,),
         )
 
         recipe_ids = {row["recipe_id"] for row in cursor.fetchall()}
         conn.close()
 
-        logger.debug("Retrieved disliked recipe IDs", count=len(recipe_ids))
+        logger.debug("Retrieved disliked recipe IDs", count=len(recipe_ids), user=self.user)
         return recipe_ids
 
     def get_feedback_for_recipe(self, recipe_id: str) -> list[RecipeFeedback]:
-        """Get all feedback for a specific recipe.
+        """Get all feedback for a specific recipe by this user.
 
         Args:
             recipe_id: Recipe ID to query
@@ -169,10 +186,10 @@ class FeedbackStore:
             """
             SELECT id, recipe_id, feedback_type, rating, session_id, created_at
             FROM recipe_feedback
-            WHERE recipe_id = ?
+            WHERE recipe_id = ? AND username = ?
             ORDER BY created_at DESC
             """,
-            (recipe_id,),
+            (recipe_id, self.user),
         )
 
         feedbacks = [
@@ -191,11 +208,13 @@ class FeedbackStore:
 
         return feedbacks
 
-    def get_average_rating(self, recipe_id: str) -> float | None:
+    def get_average_rating(self, recipe_id: str, global_avg: bool = False) -> float | None:
         """Get average user rating for a recipe.
 
         Args:
             recipe_id: Recipe ID to query
+            global_avg: If True, returns global average across all users.
+                       If False (default), returns this user's average.
 
         Returns:
             Average rating (1-5) or None if no ratings exist
@@ -203,14 +222,26 @@ class FeedbackStore:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
-        cursor.execute(
-            """
-            SELECT AVG(rating) as avg_rating
-            FROM recipe_feedback
-            WHERE recipe_id = ? AND feedback_type = 'rate' AND rating IS NOT NULL
-            """,
-            (recipe_id,),
-        )
+        if global_avg:
+            # Global average (all users)
+            cursor.execute(
+                """
+                SELECT AVG(rating) as avg_rating
+                FROM recipe_feedback
+                WHERE recipe_id = ? AND feedback_type = 'rate' AND rating IS NOT NULL
+                """,
+                (recipe_id,),
+            )
+        else:
+            # Per-user average
+            cursor.execute(
+                """
+                SELECT AVG(rating) as avg_rating
+                FROM recipe_feedback
+                WHERE recipe_id = ? AND feedback_type = 'rate' AND rating IS NOT NULL AND username = ?
+                """,
+                (recipe_id, self.user),
+            )
 
         result = cursor.fetchone()
         conn.close()
@@ -237,8 +268,9 @@ class FeedbackStore:
             SELECT r.tags
             FROM recipe_feedback f
             JOIN recipes r ON f.recipe_id = r.recipe_id
-            WHERE f.feedback_type = 'like'
-            """
+            WHERE f.feedback_type = 'like' AND f.username = ?
+            """,
+            (self.user,),
         )
 
         # Parse tags and extract cuisines
@@ -270,5 +302,5 @@ class FeedbackStore:
         ]
         preferred.sort(key=lambda c: cuisine_counts[c], reverse=True)
 
-        logger.info("Extracted preferred cuisines from likes", cuisines=preferred)
+        logger.info("Extracted preferred cuisines from likes", cuisines=preferred, user=self.user)
         return preferred
