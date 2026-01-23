@@ -164,3 +164,57 @@ class TestLoginFlowGolden:
 
         assert "Logged out from: alex" in msg
         assert "guest" in msg
+
+    def test_redundant_login_no_op(self):
+        """Golden test: login as same user returns already-logged-in message."""
+        ctx = UserContext()
+        ctx.login("alex")
+
+        # Login again as alex (redundant)
+        success, msg = ctx.login("alex")
+        assert success is True
+        assert "Already logged in as alex" in msg
+        assert ctx.current_user == "alex"
+
+    def test_redundant_login_callback_not_triggered(self):
+        """Golden test: redundant login doesn't trigger callback."""
+        callback_calls = []
+        ctx = UserContext()
+        ctx.set_on_user_change(lambda u: callback_calls.append(u))
+
+        # First login triggers callback
+        ctx.login("alex")
+        assert callback_calls == ["alex"]
+
+        # Redundant login should NOT trigger callback
+        ctx.login("alex")
+        assert callback_calls == ["alex"]  # Still only one call
+
+    def test_redundant_login_guest(self):
+        """Golden test: login as guest when already guest."""
+        ctx = UserContext()
+        assert ctx.current_user == "guest"
+
+        success, msg = ctx.login("guest")
+        assert success is True
+        assert "Already logged in as guest" in msg
+
+    def test_redundant_login_after_switch(self):
+        """Golden test: redundant login after user switch."""
+        callback_calls = []
+        ctx = UserContext()
+        ctx.set_on_user_change(lambda u: callback_calls.append(u))
+
+        # Login as alex
+        ctx.login("alex")
+        assert callback_calls == ["alex"]
+
+        # Switch to caitlyn
+        ctx.login("caitlyn")
+        assert callback_calls == ["alex", "caitlyn"]
+
+        # Redundant login as caitlyn (should NOT trigger)
+        success, msg = ctx.login("caitlyn")
+        assert success is True
+        assert "Already logged in" in msg
+        assert callback_calls == ["alex", "caitlyn"]  # No additional call

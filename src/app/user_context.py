@@ -52,6 +52,10 @@ class UserContext:
             users = ", ".join(UserRegistry.get_all())
             return False, f"Unknown user: {username}. Available: {users}"
 
+        # Check for redundant login (already logged in as this user)
+        if validated == self.current_user:
+            return True, f"Already logged in as {validated}"
+
         old_user = self.current_user
         self.current_user = validated
 

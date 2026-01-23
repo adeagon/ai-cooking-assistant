@@ -104,7 +104,8 @@ Local Recipe Assistant: A fully-local, interactive dinner-planning assistant usi
   - **Immutable user binding**: `store.user` is read-only to prevent mid-session mutation
   - **BaseUserBoundStore**: Abstract base class for consistent store initialization
   - **UserStores dataclass**: Container for all 6 store types (profile, feedback, history, recipe_box, session, meal_plan)
-  - All 635 tests passing (49 new multi-user/store factory tests)
+  - **CLI flow enhancements** (Phase 4): Multi-user startup banner, redundant login detection, user context in all logs
+  - All 639 tests passing (53 new multi-user tests including 4 for CLI flow)
 
 ## Pending Tasks
 
@@ -192,7 +193,7 @@ pytest tests/test_feedback.py tests/test_history.py tests/test_feedback_integrat
 pytest tests/test_meal_plan*.py tests/test_ingredient*.py tests/test_grocery*.py -v
 
 # Run multi-user isolation tests
-pytest tests/test_multi_user_isolation.py tests/test_store_factory.py -v
+pytest tests/test_multi_user_isolation.py tests/test_store_factory.py tests/test_cli_login_flow.py tests/test_user_context.py -v
 
 # Run LLM integration tests (requires Ollama running)
 pytest tests/test_llm_chat_phase5.py -v -s -m llm

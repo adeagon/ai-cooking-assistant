@@ -856,7 +856,8 @@ async def async_chat_session(initial_user: str = "guest"):
         last_recommended_cards = []
 
         console.print("[green]Ready![/green]")
-        console.print(f"[dim]{user_context.whoami()}[/dim]\n")
+        console.print(f"[dim]{user_context.whoami()}[/dim]")
+        console.print("[dim]Multi-user mode enabled. Use /login <name> to switch users.[/dim]\n")
 
         logger.info("Chat components initialized", user=user_context.current_user, session_id=session_id)
 
@@ -1344,7 +1345,7 @@ async def async_chat_session(initial_user: str = "guest"):
             rolling_summary = summarizer.update_summary(rolling_summary, constraints, user_input)
             session_store.update_summary(session_id, rolling_summary)
 
-            logger.info("Processed user turn", input_length=len(user_input), response_length=len(response))
+            logger.info("Processed user turn", user=user_context.current_user, input_length=len(user_input), response_length=len(response))
 
         except KeyboardInterrupt:
             console.print("\n[yellow]Goodbye![/yellow]")
@@ -1354,7 +1355,7 @@ async def async_chat_session(initial_user: str = "guest"):
             console.print(f"\n[red]Error:[/red] {e}")
             if "Connection" in str(e) or "connect" in str(e).lower():
                 console.print("[yellow]Lost connection to Ollama. Is it still running?[/yellow]")
-            logger.exception("Chat error")
+            logger.exception("Chat error", user=user_context.current_user)
 
 
 @app.command()
