@@ -37,24 +37,29 @@ class ProfileStore:
     def _ensure_table(self) -> None:
         """Create preferences table if it doesn't exist.
 
-        Handles migration from old id-based schema to username-based schema.
+        Handles migration from old id-based or user_id-based schema to username-based schema.
         """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
-        # Check if table exists and has old schema (id-based)
+        # Check if table exists and has old schema (id-based or user_id-based)
         cursor.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='preferences'"
         )
         table_exists = cursor.fetchone() is not None
 
         if table_exists:
-            # Check for old schema (id column, no username column)
+            # Check for old schema (id or user_id column, no username column)
             cursor.execute("PRAGMA table_info(preferences)")
             columns = {col[1]: col for col in cursor.fetchall()}
 
-            if "username" not in columns and "id" in columns:
+            needs_migration = "username" not in columns and ("id" in columns or "user_id" in columns)
+
+            if needs_migration:
                 logger.info("Migrating preferences table to username-based schema")
+
+                # Determine which column has the user identifier
+                user_col = "user_id" if "user_id" in columns else "id"
 
                 # Rename old table
                 cursor.execute("ALTER TABLE preferences RENAME TO preferences_old")
@@ -73,17 +78,28 @@ class ProfileStore:
                     )
                 """)
 
-                # Migrate existing row to 'guest'
-                cursor.execute("""
-                    INSERT OR IGNORE INTO preferences (
-                        username, spice_level, diet, avoid_ingredients,
-                        preferred_cuisines, time_limit_default, created_at, updated_at
-                    )
-                    SELECT 'guest', spice_level, diet, avoid_ingredients,
-                           preferred_cuisines, time_limit_default, created_at, updated_at
-                    FROM preferences_old
-                    WHERE id = 1
-                """)
+                # Migrate existing rows - use user_id/id as username, or 'guest' for id=1
+                if user_col == "user_id":
+                    cursor.execute("""
+                        INSERT OR IGNORE INTO preferences (
+                            username, spice_level, diet, avoid_ingredients,
+                            preferred_cuisines, time_limit_default, created_at, updated_at
+                        )
+                        SELECT user_id, spice_level, diet, avoid_ingredients,
+                               preferred_cuisines, time_limit_default, created_at, updated_at
+                        FROM preferences_old
+                    """)
+                else:
+                    cursor.execute("""
+                        INSERT OR IGNORE INTO preferences (
+                            username, spice_level, diet, avoid_ingredients,
+                            preferred_cuisines, time_limit_default, created_at, updated_at
+                        )
+                        SELECT 'guest', spice_level, diet, avoid_ingredients,
+                               preferred_cuisines, time_limit_default, created_at, updated_at
+                        FROM preferences_old
+                        WHERE id = 1
+                    """)
 
                 # Drop old table
                 cursor.execute("DROP TABLE preferences_old")
