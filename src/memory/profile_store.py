@@ -14,17 +14,25 @@ logger = get_logger(__name__)
 class ProfileStore:
     """Manages persistent storage of user preferences in SQLite.
 
-    Each user has their own preference profile, keyed by username.
+    Each store instance is bound to a specific user at instantiation.
+    The user cannot be changed after initialization.
     """
 
-    def __init__(self, db_path: Path):
-        """Initialize ProfileStore with database path.
+    def __init__(self, db_path: Path, username: str = "guest"):
+        """Initialize ProfileStore bound to a specific user.
 
         Args:
             db_path: Path to SQLite database file
+            username: Username this store is bound to (default: "guest")
         """
         self.db_path = db_path
+        self._user = username
         self._ensure_table()
+
+    @property
+    def user(self) -> str:
+        """Read-only access to bound username."""
+        return self._user
 
     def _ensure_table(self) -> None:
         """Create preferences table if it doesn't exist.
@@ -101,28 +109,22 @@ class ProfileStore:
 
         logger.info("Preferences table ensured", db_path=str(self.db_path))
 
-    def load(self, user_id: str | None = None) -> PreferenceProfile:
+    def load(self) -> PreferenceProfile:
         """Load user preferences from database.
-
-        Args:
-            user_id: Username to load preferences for. Defaults to 'guest' if None.
 
         Returns:
             PreferenceProfile with user preferences, or default profile if none exists
         """
-        # Default to guest if no user_id provided
-        username = user_id or "guest"
-
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        cursor.execute("SELECT * FROM preferences WHERE username = ?", (username,))
+        cursor.execute("SELECT * FROM preferences WHERE username = ?", (self.user,))
         row = cursor.fetchone()
         conn.close()
 
         if row is None:
-            logger.info("No preferences found, returning defaults", username=username)
+            logger.info("No preferences found, returning defaults", user=self.user)
             return PreferenceProfile()
 
         # Parse JSON arrays
@@ -139,7 +141,7 @@ class ProfileStore:
 
         logger.info(
             "Loaded user preferences",
-            username=username,
+            user=self.user,
             spice_level=profile.spice_level,
             diet=profile.diet,
             avoid_count=len(profile.avoid_ingredients),
@@ -147,16 +149,12 @@ class ProfileStore:
 
         return profile
 
-    def save(self, profile: PreferenceProfile, user_id: str | None = None) -> None:
+    def save(self, profile: PreferenceProfile) -> None:
         """Save user preferences to database.
 
         Args:
             profile: PreferenceProfile to save
-            user_id: Username to save preferences for. Defaults to 'guest' if None.
         """
-        # Default to guest if no user_id provided
-        username = user_id or "guest"
-
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
@@ -174,7 +172,7 @@ class ProfileStore:
             ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                username,
+                self.user,
                 profile.spice_level,
                 profile.diet,
                 avoid_ingredients_json,
@@ -187,34 +185,30 @@ class ProfileStore:
         conn.commit()
         conn.close()
 
-        logger.info("Saved user preferences", username=username, spice_level=profile.spice_level, diet=profile.diet)
+        logger.info("Saved user preferences", user=self.user, spice_level=profile.spice_level, diet=profile.diet)
 
-    def update(self, user_id: str | None = None, **updates) -> PreferenceProfile:
+    def update(self, **updates) -> PreferenceProfile:
         """Update specific preference fields.
 
         Args:
-            user_id: Username to update preferences for. Defaults to 'guest' if None.
             **updates: Fields to update (spice_level, diet, avoid_ingredients, etc.)
 
         Returns:
             Updated PreferenceProfile
         """
-        # Default to guest if no user_id provided
-        username = user_id or "guest"
-
         # Load current profile
-        profile = self.load(user_id=username)
+        profile = self.load()
 
         # Update fields
         for key, value in updates.items():
             if hasattr(profile, key):
                 setattr(profile, key, value)
             else:
-                logger.warning("Unknown preference field", field=key)
+                logger.warning("Unknown preference field", field=key, user=self.user)
 
         # Save updated profile
-        self.save(profile, user_id=username)
+        self.save(profile)
 
-        logger.info("Updated user preferences", username=username, updates=list(updates.keys()))
+        logger.info("Updated user preferences", user=self.user, updates=list(updates.keys()))
 
         return profile

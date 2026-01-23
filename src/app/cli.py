@@ -165,32 +165,31 @@ def display_full_recipe(recipe, console: Console):
 
 
 def update_learned_preferences(
-    feedback_store, profile_store, console: Console | None = None, user_id: str | None = None
+    feedback_store, profile_store, console: Console | None = None
 ) -> bool:
     """Update user profile with preferences learned from feedback.
 
     Args:
-        feedback_store: FeedbackStore instance
-        profile_store: ProfileStore instance
+        feedback_store: FeedbackStore instance (user-bound)
+        profile_store: ProfileStore instance (user-bound)
         console: Optional console for output
-        user_id: Username to update preferences for. Defaults to 'guest' if None.
 
     Returns:
         True if preferences were updated
     """
     # Get cuisines learned from likes (requires 3+ likes)
-    learned_cuisines = feedback_store.get_preferred_cuisines_from_likes(min_count=3, user_id=user_id)
+    learned_cuisines = feedback_store.get_preferred_cuisines_from_likes(min_count=3)
 
     if learned_cuisines:
         # Get current profile
-        profile = profile_store.load(user_id=user_id)
+        profile = profile_store.load()
         current_cuisines = set(c.lower() for c in profile.preferred_cuisines)
         new_cuisines = [c for c in learned_cuisines if c.lower() not in current_cuisines]
 
         if new_cuisines:
             # Merge learned cuisines with existing preferences
             updated_cuisines = list(profile.preferred_cuisines) + new_cuisines
-            profile_store.update(user_id=user_id, preferred_cuisines=updated_cuisines)
+            profile_store.update(preferred_cuisines=updated_cuisines)
 
             if console:
                 console.print(f"[dim]📚 Learned preference: {', '.join(new_cuisines)}[/dim]")
@@ -210,22 +209,20 @@ def execute_intent(
     session_id: str,
     settings,
     console: Console,
-    user_id: str | None = None,
 ) -> bool:
     """Execute detected intent command.
 
     Args:
         intent_result: IntentClassification object
         last_cards: List of last recommended RecipeCard objects
-        feedback_store: FeedbackStore instance
-        history_store: HistoryStore instance
-        recipe_box_store: RecipeBoxStore instance
-        profile_store: ProfileStore instance
-        session_store: SessionStore instance
+        feedback_store: FeedbackStore instance (user-bound)
+        history_store: HistoryStore instance (user-bound)
+        recipe_box_store: RecipeBoxStore instance (user-bound)
+        profile_store: ProfileStore instance (user-bound)
+        session_store: SessionStore instance (user-bound)
         session_id: Current session ID
         settings: Application settings
         console: Rich console for output
-        user_id: Username executing the intent. Defaults to 'guest' if None.
 
     Returns:
         True if command was executed, False if should fall through to chat
@@ -242,7 +239,7 @@ def execute_intent(
 
     # Handle stateless commands (no recipe reference needed)
     if intent == "history":
-        history = history_store.get_cooking_history(limit=10, user_id=user_id)
+        history = history_store.get_cooking_history(limit=10)
         if history:
             console.print(f"\n[bold]Recent Cooking History:[/bold]")
             for i, entry in enumerate(history, 1):
@@ -255,7 +252,7 @@ def execute_intent(
         return True
 
     if intent == "box":
-        saved_recipes = recipe_box_store.get_saved_recipes(limit=50, user_id=user_id)
+        saved_recipes = recipe_box_store.get_saved_recipes(limit=50)
         if saved_recipes:
             console.print(f"\n[bold]Recipe Box ({len(saved_recipes)} saved):[/bold]")
             for i, saved in enumerate(saved_recipes, 1):
@@ -266,14 +263,14 @@ def execute_intent(
         return True
 
     if intent == "new":
-        new_session_id = session_store.create(user_id=user_id)
+        new_session_id = session_store.create()
         console.print("[green]✓ Started new session[/green]")
-        logger.info("New session created", session_id=new_session_id, username=user_id)
+        logger.info("New session created", session_id=new_session_id, user=session_store.user)
         # Note: session_id update would need to be handled by caller
         return True
 
     if intent == "prefs":
-        profile = profile_store.load(user_id=user_id)
+        profile = profile_store.load()
         console.print(f"\n[bold]Your Preferences:[/bold]")
         console.print(f"  Spice level: {profile.spice_level}")
         console.print(f"  Diet: {profile.diet}")
@@ -372,7 +369,7 @@ def execute_intent(
     result = None
     if intent_result.source == "box":
         # Try to resolve from Recipe Box first
-        saved_recipes = recipe_box_store.get_saved_recipes(limit=50, user_id=user_id)
+        saved_recipes = recipe_box_store.get_saved_recipes(limit=50)
         if saved_recipes:
             # Try numeric reference first
             try:
@@ -415,10 +412,10 @@ def execute_intent(
             recipe_id=recipe_id,
             feedback_type="like",
             session_id=session_id
-        ), user_id=user_id)
+        ))
         console.print(f"[green]✓ Liked: {title}[/green]")
         # Check for learned preferences after liking
-        update_learned_preferences(feedback_store, profile_store, console, user_id=user_id)
+        update_learned_preferences(feedback_store, profile_store, console)
         return True
 
     if intent == "dislike":
@@ -426,7 +423,7 @@ def execute_intent(
             recipe_id=recipe_id,
             feedback_type="dislike",
             session_id=session_id
-        ), user_id=user_id)
+        ))
         console.print(f"[yellow]✓ Disliked: {title}[/yellow]")
         return True
 
@@ -441,7 +438,7 @@ def execute_intent(
             feedback_type="rate",
             rating=rating,
             session_id=session_id
-        ), user_id=user_id)
+        ))
         console.print(f"[green]✓ Rated {title}: {rating}/5[/green]")
         return True
 
@@ -454,13 +451,13 @@ def execute_intent(
         return True
 
     if intent == "cooked":
-        history_store.add_cooked(recipe_id, user_id=user_id)
+        history_store.add_cooked(recipe_id)
         console.print(f"[green]✓ Marked as cooked: {title}[/green]")
         return True
 
     if intent == "save":
         try:
-            recipe_box_store.save_recipe(recipe_id, title, user_id=user_id)
+            recipe_box_store.save_recipe(recipe_id, title)
             console.print(f"[green]✓ Saved to Recipe Box: {title}[/green]")
         except Exception as e:
             if "UNIQUE" in str(e):
@@ -470,7 +467,7 @@ def execute_intent(
         return True
 
     if intent == "unsave":
-        if recipe_box_store.remove_recipe(recipe_id, user_id=user_id):
+        if recipe_box_store.remove_recipe(recipe_id):
             console.print(f"[green]✓ Removed from Recipe Box: {title}[/green]")
         else:
             console.print(f"[yellow]Recipe not found in box: {title}[/yellow]")
@@ -487,18 +484,16 @@ async def handle_mealplan_command(
     meal_plan_store,
     settings,
     console: Console,
-    user_id: str | None = None,
 ):
     """Handle the /mealplan command to generate a meal plan.
 
     Args:
         input_text: Optional constraints from user (e.g., "5 vegetarian dinners")
         profile: User's preference profile
-        recipe_box_store: RecipeBoxStore for saved recipes
-        meal_plan_store: MealPlanStore for storing plans
+        recipe_box_store: RecipeBoxStore for saved recipes (user-bound)
+        meal_plan_store: MealPlanStore for storing plans (user-bound)
         settings: Application settings
         console: Rich console for output
-        user_id: Username to create plan for. Defaults to 'guest' if None.
     """
     from datetime import date, timedelta
     from src.planning.constraint_extractor import MealPlanConstraintExtractor
@@ -538,8 +533,8 @@ async def handle_mealplan_command(
     console.print("\n[dim]Generating plan...[/dim]")
 
     try:
-        # Get saved recipes from Recipe Box (user-specific)
-        saved_recipes = recipe_box_store.get_saved_recipes(limit=100, user_id=user_id)
+        # Get saved recipes from Recipe Box (user-bound store)
+        saved_recipes = recipe_box_store.get_saved_recipes(limit=100)
         box_recipe_ids = {r.recipe_id for r in saved_recipes}
 
         # Fetch candidate recipes from database
@@ -564,7 +559,7 @@ async def handle_mealplan_command(
         end_date = start_date + timedelta(days=constraints.days - 1)
 
         plan = MealPlan(
-            user_id=user_id or "guest",
+            user_id=meal_plan_store.user,
             start_date=start_date,
             end_date=end_date,
             meal_types=constraints.meal_types or ["dinner"],
@@ -612,19 +607,18 @@ async def handle_mealplan_command(
         logger.exception("Meal plan generation error")
 
 
-def display_current_meal_plan(meal_plan_store, settings, console: Console, user_id: str | None = None):
-    """Display the current/most recent meal plan for a user.
+def display_current_meal_plan(meal_plan_store, settings, console: Console):
+    """Display the current/most recent meal plan for this user.
 
     Args:
-        meal_plan_store: MealPlanStore instance
+        meal_plan_store: MealPlanStore instance (user-bound)
         settings: Application settings
         console: Rich console for output
-        user_id: Username to get plan for. Defaults to 'guest' if None.
     """
     from src.ingest.build_db import get_recipe_by_id
 
-    # Get most recent active or draft plan (user-specific)
-    plans = meal_plan_store.get_recent_plans(limit=1, user_id=user_id)
+    # Get most recent active or draft plan (user-bound store)
+    plans = meal_plan_store.get_recent_plans(limit=1)
     if not plans:
         console.print("[yellow]No meal plans found. Use /mealplan to create one.[/yellow]")
         return
@@ -661,20 +655,19 @@ def display_current_meal_plan(meal_plan_store, settings, console: Console, user_
                       f"{plan.metrics.overlap_ratio:.0%} overlap[/dim]")
 
 
-def generate_and_display_grocery_list(meal_plan_store, settings, console: Console, user_id: str | None = None):
+def generate_and_display_grocery_list(meal_plan_store, settings, console: Console):
     """Generate and display grocery list for current meal plan.
 
     Args:
-        meal_plan_store: MealPlanStore instance
+        meal_plan_store: MealPlanStore instance (user-bound)
         settings: Application settings
         console: Rich console for output
-        user_id: Username to get plan for. Defaults to 'guest' if None.
     """
     from src.planning.grocery_list import GroceryListGenerator
     from src.ingest.build_db import get_recipe_by_id
 
-    # Get most recent plan (user-specific)
-    plans = meal_plan_store.get_recent_plans(limit=1, user_id=user_id)
+    # Get most recent plan (user-bound store)
+    plans = meal_plan_store.get_recent_plans(limit=1)
     if not plans:
         console.print("[yellow]No meal plans found. Use /mealplan to create one first.[/yellow]")
         return
@@ -806,17 +799,10 @@ async def async_chat_session(initial_user: str = "guest"):
             settings=settings
         )
 
-        # Initialize memory stores
-        profile_store = ProfileStore(db_path=settings.sqlite_db_path)
-        session_store = SessionStore(db_path=settings.sqlite_db_path)
-        feedback_store = FeedbackStore(db_path=settings.sqlite_db_path)
-        history_store = HistoryStore(db_path=settings.sqlite_db_path)
-        recipe_box_store = RecipeBoxStore(db_path=settings.sqlite_db_path)
+        # Initialize store factory and get user-bound stores
+        from src.memory.store_factory import StoreFactory
+        store_factory = StoreFactory(db_path=settings.sqlite_db_path)
         summarizer = RollingSummarizer()
-
-        # Initialize meal plan store
-        from src.memory.meal_plan_store import MealPlanStore
-        meal_plan_store = MealPlanStore(db_path=settings.sqlite_db_path)
 
         # Initialize user context (defaults to guest, or uses --user flag)
         validated_user = UserRegistry.normalize(initial_user)
@@ -826,20 +812,44 @@ async def async_chat_session(initial_user: str = "guest"):
 
         user_context = UserContext(current_user=validated_user)
 
-        # Define state reset callback
+        # Get stores for initial user
+        stores = store_factory.get_stores(user_context.current_user)
+        profile_store = stores.profile
+        session_store = stores.session
+        feedback_store = stores.feedback
+        history_store = stores.history
+        recipe_box_store = stores.recipe_box
+        meal_plan_store = stores.meal_plan
+
+        # Define state reset callback for user switching
         def on_user_change(new_user: str) -> None:
-            nonlocal session_id, session, rolling_summary, last_recommended_cards, profile
-            session_id, session = session_store.get_or_create_current(user_id=new_user)
+            nonlocal stores, profile_store, session_store, feedback_store, history_store
+            nonlocal recipe_box_store, meal_plan_store, session_id, session, profile
+            nonlocal rolling_summary, last_recommended_cards
+
+            # Get (or create) cached stores for new user
+            stores = store_factory.get_stores(new_user)
+            profile_store = stores.profile
+            session_store = stores.session
+            feedback_store = stores.feedback
+            history_store = stores.history
+            recipe_box_store = stores.recipe_box
+            meal_plan_store = stores.meal_plan
+
+            # Reset session state (important: creates new session for this login)
+            session_id, session = session_store.get_or_create_current()
+            profile = profile_store.load()
             rolling_summary = ""
             last_recommended_cards = []
-            profile = profile_store.load(user_id=new_user)
+
+            console.print(f"[green]✓ Logged in as {new_user}. Started a new session.[/green]")
             logger.info("User context reset", user=new_user, session_id=session_id)
 
         user_context.set_on_user_change(on_user_change)
 
         # Load initial user's profile and session
-        profile = profile_store.load(user_id=user_context.current_user)
-        session_id, session = session_store.get_or_create_current(user_id=user_context.current_user)
+        profile = profile_store.load()
+        session_id, session = session_store.get_or_create_current()
         rolling_summary = session_store.get_summary(session_id)
 
         # Track last recommended cards for feedback commands
@@ -953,7 +963,6 @@ async def async_chat_session(initial_user: str = "guest"):
                         session_id,
                         settings,
                         console,
-                        user_id=user_context.current_user,
                     ):
                         # Intent was executed, continue to next input
                         continue
@@ -963,11 +972,11 @@ async def async_chat_session(initial_user: str = "guest"):
                     # Fall through to normal chat processing
 
             if user_input.strip().lower() == "/new":
-                session_id = session_store.create(user_id=user_context.current_user)
+                session_id = session_store.create()
                 session = session_store.get(session_id)
                 rolling_summary = ""
                 console.print("[green]✓ Started new session[/green]")
-                logger.info("New session created", user=user_context.current_user, session_id=session_id)
+                logger.info("New session created", user=session_store.user, session_id=session_id)
                 continue
 
             if user_input.strip().lower() == "/prefs":
@@ -981,7 +990,7 @@ async def async_chat_session(initial_user: str = "guest"):
                 if profile.time_limit_default_minutes:
                     console.print(f"  Default time: {profile.time_limit_default_minutes} minutes")
                 # Show learned preferences
-                learned_cuisines = feedback_store.get_preferred_cuisines_from_likes(min_count=3, user_id=user_context.current_user)
+                learned_cuisines = feedback_store.get_preferred_cuisines_from_likes(min_count=3)
                 if learned_cuisines:
                     console.print(f"\n[dim]Learned from your likes ({len(learned_cuisines)} cuisines):[/dim]")
                     console.print(f"  [dim]{', '.join(learned_cuisines)}[/dim]")
@@ -1000,8 +1009,8 @@ async def async_chat_session(initial_user: str = "guest"):
                     current = list(profile.preferred_cuisines)
                     if value.lower() not in [c.lower() for c in current]:
                         current.append(value.lower())
-                        profile_store.update(user_id=user_context.current_user, preferred_cuisines=current)
-                        profile = profile_store.load(user_id=user_context.current_user)  # Reload profile
+                        profile_store.update(preferred_cuisines=current)
+                        profile = profile_store.load()  # Reload profile
                         console.print(f"[green]✓ Added cuisine preference: {value}[/green]")
                     else:
                         console.print(f"[yellow]Already in preferences: {value}[/yellow]")
@@ -1010,8 +1019,8 @@ async def async_chat_session(initial_user: str = "guest"):
                     current = list(profile.avoid_ingredients)
                     if value.lower() not in [i.lower() for i in current]:
                         current.append(value.lower())
-                        profile_store.update(user_id=user_context.current_user, avoid_ingredients=current)
-                        profile = profile_store.load(user_id=user_context.current_user)
+                        profile_store.update(avoid_ingredients=current)
+                        profile = profile_store.load()
                         console.print(f"[green]✓ Will avoid: {value}[/green]")
                     else:
                         console.print(f"[yellow]Already avoiding: {value}[/yellow]")
@@ -1019,8 +1028,8 @@ async def async_chat_session(initial_user: str = "guest"):
                 elif pref_type == "diet":
                     valid_diets = ["none", "vegetarian", "vegan", "pescatarian", "keto", "gluten_free"]
                     if value.lower() in valid_diets:
-                        profile_store.update(user_id=user_context.current_user, diet=value.lower())
-                        profile = profile_store.load(user_id=user_context.current_user)
+                        profile_store.update(diet=value.lower())
+                        profile = profile_store.load()
                         console.print(f"[green]✓ Set diet: {value}[/green]")
                     else:
                         console.print(f"[yellow]Invalid diet. Options: {', '.join(valid_diets)}[/yellow]")
@@ -1028,8 +1037,8 @@ async def async_chat_session(initial_user: str = "guest"):
                 elif pref_type == "spice":
                     valid_spice = ["none", "mild", "medium", "hot"]
                     if value.lower() in valid_spice:
-                        profile_store.update(user_id=user_context.current_user, spice_level=value.lower())
-                        profile = profile_store.load(user_id=user_context.current_user)
+                        profile_store.update(spice_level=value.lower())
+                        profile = profile_store.load()
                         console.print(f"[green]✓ Set spice level: {value}[/green]")
                     else:
                         console.print(f"[yellow]Invalid spice level. Options: {', '.join(valid_spice)}[/yellow]")
@@ -1038,8 +1047,8 @@ async def async_chat_session(initial_user: str = "guest"):
                     try:
                         minutes = int(value)
                         if minutes > 0:
-                            profile_store.update(user_id=user_context.current_user, time_limit_default_minutes=minutes)
-                            profile = profile_store.load(user_id=user_context.current_user)
+                            profile_store.update(time_limit_default_minutes=minutes)
+                            profile = profile_store.load()
                             console.print(f"[green]✓ Set default time limit: {minutes} minutes[/green]")
                         else:
                             console.print("[yellow]Time must be positive[/yellow]")
@@ -1064,11 +1073,11 @@ async def async_chat_session(initial_user: str = "guest"):
                         recipe_id=recipe_id,
                         feedback_type="like",
                         session_id=session_id
-                    ), user_id=user_context.current_user)
+                    ))
                     console.print(f"[green]✓ Liked: {title}[/green]")
                     # Check for learned preferences after liking
-                    if update_learned_preferences(feedback_store, profile_store, console, user_id=user_context.current_user):
-                        profile = profile_store.load(user_id=user_context.current_user)  # Reload profile with new preferences
+                    if update_learned_preferences(feedback_store, profile_store, console):
+                        profile = profile_store.load()  # Reload profile with new preferences
                 else:
                     console.print(f"[yellow]Recipe not found: {ref}[/yellow]")
                 continue
@@ -1086,7 +1095,7 @@ async def async_chat_session(initial_user: str = "guest"):
                         recipe_id=recipe_id,
                         feedback_type="dislike",
                         session_id=session_id
-                    ), user_id=user_context.current_user)
+                    ))
                     console.print(f"[yellow]✓ Disliked: {title}[/yellow]")
                 else:
                     console.print(f"[yellow]Recipe not found: {ref}[/yellow]")
@@ -1112,7 +1121,7 @@ async def async_chat_session(initial_user: str = "guest"):
                             feedback_type="rate",
                             rating=rating,
                             session_id=session_id
-                        ), user_id=user_context.current_user)
+                        ))
                         console.print(f"[green]✓ Rated {title}: {rating}/5[/green]")
                     else:
                         console.print(f"[yellow]Recipe not found: {ref}[/yellow]")
@@ -1131,7 +1140,7 @@ async def async_chat_session(initial_user: str = "guest"):
                 # Check for Recipe Box reference: "box 1", "box 2", etc.
                 if ref.lower().startswith("box"):
                     box_ref = ref[3:].strip()
-                    saved_recipes = recipe_box_store.get_saved_recipes(limit=50, user_id=user_context.current_user)
+                    saved_recipes = recipe_box_store.get_saved_recipes(limit=50)
                     if not saved_recipes:
                         console.print("[yellow]Recipe Box is empty[/yellow]")
                         continue
@@ -1171,7 +1180,7 @@ async def async_chat_session(initial_user: str = "guest"):
                         console.print(f"[yellow]Recipe not found in database: {recipe_id}[/yellow]")
                 else:
                     # Also try Recipe Box as fallback
-                    saved_recipes = recipe_box_store.get_saved_recipes(limit=50, user_id=user_context.current_user)
+                    saved_recipes = recipe_box_store.get_saved_recipes(limit=50)
                     found = False
                     for saved in saved_recipes:
                         if ref.lower() in saved.title.lower():
@@ -1194,7 +1203,7 @@ async def async_chat_session(initial_user: str = "guest"):
                 result = resolve_recipe_reference(ref, last_recommended_cards)
                 if result:
                     recipe_id, title = result
-                    history_store.add_cooked(recipe_id, user_id=user_context.current_user)
+                    history_store.add_cooked(recipe_id)
                     console.print(f"[green]✓ Marked as cooked: {title}[/green]")
                 else:
                     console.print(f"[yellow]Recipe not found: {ref}[/yellow]")
@@ -1202,7 +1211,7 @@ async def async_chat_session(initial_user: str = "guest"):
 
             # /history command
             if user_input.strip().lower() == "/history":
-                history = history_store.get_cooking_history(limit=10, user_id=user_context.current_user)
+                history = history_store.get_cooking_history(limit=10)
                 if history:
                     console.print(f"\n[bold]Recent Cooking History:[/bold]")
                     for i, entry in enumerate(history, 1):
@@ -1225,7 +1234,7 @@ async def async_chat_session(initial_user: str = "guest"):
                 if result:
                     recipe_id, title = result
                     try:
-                        recipe_box_store.save_recipe(recipe_id, title, user_id=user_context.current_user)
+                        recipe_box_store.save_recipe(recipe_id, title)
                         console.print(f"[green]✓ Saved to Recipe Box: {title}[/green]")
                     except Exception as e:
                         if "UNIQUE" in str(e):
@@ -1245,7 +1254,7 @@ async def async_chat_session(initial_user: str = "guest"):
                 result = resolve_recipe_reference(ref, last_recommended_cards)
                 if result:
                     recipe_id, title = result
-                    if recipe_box_store.remove_recipe(recipe_id, user_id=user_context.current_user):
+                    if recipe_box_store.remove_recipe(recipe_id):
                         console.print(f"[green]✓ Removed from Recipe Box: {title}[/green]")
                     else:
                         console.print(f"[yellow]Recipe not found in box: {title}[/yellow]")
@@ -1255,7 +1264,7 @@ async def async_chat_session(initial_user: str = "guest"):
 
             # /box command
             if user_input.strip().lower() == "/box":
-                saved_recipes = recipe_box_store.get_saved_recipes(limit=50, user_id=user_context.current_user)
+                saved_recipes = recipe_box_store.get_saved_recipes(limit=50)
                 if saved_recipes:
                     console.print(f"\n[bold]Recipe Box ({len(saved_recipes)} saved):[/bold]")
                     for i, saved in enumerate(saved_recipes, 1):
@@ -1275,29 +1284,28 @@ async def async_chat_session(initial_user: str = "guest"):
                     meal_plan_store=meal_plan_store,
                     settings=settings,
                     console=console,
-                    user_id=user_context.current_user,
                 )
                 continue
 
             # /plan command - show current meal plan
             if user_input.strip().lower() in ("/plan", "/showplan"):
-                display_current_meal_plan(meal_plan_store, settings, console, user_id=user_context.current_user)
+                display_current_meal_plan(meal_plan_store, settings, console)
                 continue
 
             # /grocery command - generate grocery list
             if user_input.strip().lower() in ("/grocery", "/groceries"):
-                generate_and_display_grocery_list(meal_plan_store, settings, console, user_id=user_context.current_user)
+                generate_and_display_grocery_list(meal_plan_store, settings, console)
                 continue
 
             # Skip empty input
             if not user_input.strip():
                 continue
 
-            # Compute exclusion set from feedback and history (per-user)
+            # Compute exclusion set from feedback and history (user-bound stores)
             exclude_ids = (
-                feedback_store.get_liked_recipe_ids(limit=20, user_id=user_context.current_user) |
-                feedback_store.get_disliked_recipe_ids(user_id=user_context.current_user) |
-                history_store.get_recently_cooked_ids(days=7, user_id=user_context.current_user)
+                feedback_store.get_liked_recipe_ids(limit=20) |
+                feedback_store.get_disliked_recipe_ids() |
+                history_store.get_recently_cooked_ids(days=7)
             )
 
             # Build chain with current context

@@ -15,19 +15,27 @@ logger = get_logger(__name__)
 class SessionStore:
     """Manages session state persistence in SQLite.
 
-    Each user has their own sessions, tracked separately.
+    Each store instance is bound to a specific user at instantiation.
+    The user cannot be changed after initialization.
     """
 
-    def __init__(self, db_path: Path):
-        """Initialize SessionStore with database path.
+    def __init__(self, db_path: Path, username: str = "guest"):
+        """Initialize SessionStore bound to a specific user.
 
         Args:
             db_path: Path to SQLite database file
+            username: Username this store is bound to (default: "guest")
         """
         self.db_path = db_path
-        # Track current session per user (dict instead of single string)
-        self._current_session_ids: dict[str, str] = {}
+        self._user = username
+        # Track current session for this user (single session per store instance)
+        self._current_session_id: str | None = None
         self._ensure_table()
+
+    @property
+    def user(self) -> str:
+        """Read-only access to bound username."""
+        return self._user
 
     def _ensure_table(self) -> None:
         """Create sessions table if it doesn't exist.
@@ -72,18 +80,12 @@ class SessionStore:
 
         logger.info("Sessions table ensured", db_path=str(self.db_path))
 
-    def create(self, user_id: str | None = None) -> str:
+    def create(self) -> str:
         """Create a new session with empty state.
-
-        Args:
-            user_id: Username to create session for. Defaults to 'guest' if None.
 
         Returns:
             Session ID (UUID string)
         """
-        # Default to guest if no user_id provided
-        username = user_id or "guest"
-
         session_id = str(uuid.uuid4())
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -97,16 +99,16 @@ class SessionStore:
                 time_limit, servings, rolling_summary, created_at, updated_at, username
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (session_id, "[]", "[]", "[]", None, None, "", now, now, username),
+            (session_id, "[]", "[]", "[]", None, None, "", now, now, self.user),
         )
 
         conn.commit()
         conn.close()
 
-        # Track current session per user
-        self._current_session_ids[username] = session_id
+        # Track current session for this store instance
+        self._current_session_id = session_id
 
-        logger.info("Created new session", session_id=session_id, username=username)
+        logger.info("Created new session", session_id=session_id, user=self.user)
 
         return session_id
 
@@ -253,24 +255,17 @@ class SessionStore:
 
         return row["rolling_summary"] or ""
 
-    def get_or_create_current(self, user_id: str | None = None) -> tuple[str, SessionState]:
-        """Get current session or create new one for a user.
-
-        Args:
-            user_id: Username to get/create session for. Defaults to 'guest' if None.
+    def get_or_create_current(self) -> tuple[str, SessionState]:
+        """Get current session or create new one for this user.
 
         Returns:
             Tuple of (session_id, SessionState)
         """
-        # Default to guest if no user_id provided
-        username = user_id or "guest"
-
-        # Check if we have a current session for this user in memory
-        if username in self._current_session_ids:
-            session_id = self._current_session_ids[username]
-            session = self.get(session_id)
+        # Check if we have a current session in memory
+        if self._current_session_id is not None:
+            session = self.get(self._current_session_id)
             if session is not None:
-                return session_id, session
+                return self._current_session_id, session
 
         # Try to find existing session for this user in database
         conn = sqlite3.connect(self.db_path)
@@ -282,7 +277,7 @@ class SessionStore:
             ORDER BY updated_at DESC
             LIMIT 1
             """,
-            (username,),
+            (self.user,),
         )
         row = cursor.fetchone()
         conn.close()
@@ -291,11 +286,11 @@ class SessionStore:
             session_id = row[0]
             session = self.get(session_id)
             if session is not None:
-                self._current_session_ids[username] = session_id
+                self._current_session_id = session_id
                 return session_id, session
 
         # Create new session for this user
-        session_id = self.create(user_id=username)
+        session_id = self.create()
         session = self.get(session_id)
 
         return session_id, session or SessionState()

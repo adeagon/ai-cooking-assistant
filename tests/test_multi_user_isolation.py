@@ -2,6 +2,8 @@
 
 These tests verify that user data is properly segregated and that
 users cannot access each other's data.
+
+Phase 3: Uses user-bound store instances (username at __init__).
 """
 
 import sqlite3
@@ -17,6 +19,7 @@ from src.memory.profile_store import ProfileStore
 from src.memory.recipe_box_store import RecipeBoxStore
 from src.memory.session_store import SessionStore
 from src.memory.meal_plan_store import MealPlanStore
+from src.memory.store_factory import StoreFactory, UserStores
 
 
 @pytest.fixture
@@ -51,7 +54,9 @@ class TestProfileIsolation:
 
     def test_different_users_different_prefs(self, temp_db):
         """Alex's preferences should not affect Caitlyn's."""
-        store = ProfileStore(temp_db)
+        # Create separate store instances per user
+        store_alex = ProfileStore(temp_db, username="alex")
+        store_caitlyn = ProfileStore(temp_db, username="caitlyn")
 
         # Set Alex's preferences
         alex_profile = PreferenceProfile(
@@ -59,7 +64,7 @@ class TestProfileIsolation:
             diet="none",
             preferred_cuisines=["mexican", "indian"],
         )
-        store.save(alex_profile, user_id="alex")
+        store_alex.save(alex_profile)
 
         # Set Caitlyn's preferences
         caitlyn_profile = PreferenceProfile(
@@ -67,11 +72,11 @@ class TestProfileIsolation:
             diet="vegetarian",
             preferred_cuisines=["italian", "greek"],
         )
-        store.save(caitlyn_profile, user_id="caitlyn")
+        store_caitlyn.save(caitlyn_profile)
 
         # Verify isolation
-        loaded_alex = store.load(user_id="alex")
-        loaded_caitlyn = store.load(user_id="caitlyn")
+        loaded_alex = store_alex.load()
+        loaded_caitlyn = store_caitlyn.load()
 
         assert loaded_alex.spice_level == "hot"
         assert loaded_caitlyn.spice_level == "mild"
@@ -82,42 +87,37 @@ class TestProfileIsolation:
 
     def test_guest_gets_defaults(self, temp_db):
         """Guest user gets default preferences."""
-        store = ProfileStore(temp_db)
+        store = ProfileStore(temp_db, username="guest")
 
         # Load without any saved profile
-        profile = store.load(user_id="guest")
+        profile = store.load()
 
         assert profile.spice_level == "medium"
         assert profile.diet == "none"
         assert profile.avoid_ingredients == []
         assert profile.preferred_cuisines == []
 
-    def test_none_user_id_uses_guest(self, temp_db):
-        """Passing None for user_id should use 'guest'."""
+    def test_default_username_is_guest(self, temp_db):
+        """Default username should be 'guest'."""
         store = ProfileStore(temp_db)
 
-        # Save with explicit guest
-        guest_profile = PreferenceProfile(spice_level="hot")
-        store.save(guest_profile, user_id="guest")
-
-        # Load with None (should use guest)
-        loaded = store.load(user_id=None)
-        assert loaded.spice_level == "hot"
+        assert store.user == "guest"
 
     def test_update_isolated_by_user(self, temp_db):
         """Updates should only affect the specified user."""
-        store = ProfileStore(temp_db)
+        store_alex = ProfileStore(temp_db, username="alex")
+        store_caitlyn = ProfileStore(temp_db, username="caitlyn")
 
         # Set initial preferences for both
-        store.save(PreferenceProfile(spice_level="medium"), user_id="alex")
-        store.save(PreferenceProfile(spice_level="medium"), user_id="caitlyn")
+        store_alex.save(PreferenceProfile(spice_level="medium"))
+        store_caitlyn.save(PreferenceProfile(spice_level="medium"))
 
         # Update only Alex's
-        store.update(user_id="alex", spice_level="hot")
+        store_alex.update(spice_level="hot")
 
         # Verify only Alex changed
-        assert store.load(user_id="alex").spice_level == "hot"
-        assert store.load(user_id="caitlyn").spice_level == "medium"
+        assert store_alex.load().spice_level == "hot"
+        assert store_caitlyn.load().spice_level == "medium"
 
 
 class TestFeedbackIsolation:
@@ -125,25 +125,26 @@ class TestFeedbackIsolation:
 
     def test_likes_isolated_by_user(self, temp_db):
         """Alex's likes don't show in Caitlyn's liked list."""
-        store = FeedbackStore(temp_db)
+        store_alex = FeedbackStore(temp_db, username="alex")
+        store_caitlyn = FeedbackStore(temp_db, username="caitlyn")
 
         # Alex likes recipe_1
-        store.add_feedback(RecipeFeedback(
+        store_alex.add_feedback(RecipeFeedback(
             recipe_id="recipe_1",
             feedback_type="like",
             session_id="session1"
-        ), user_id="alex")
+        ))
 
         # Caitlyn likes recipe_2
-        store.add_feedback(RecipeFeedback(
+        store_caitlyn.add_feedback(RecipeFeedback(
             recipe_id="recipe_2",
             feedback_type="like",
             session_id="session2"
-        ), user_id="caitlyn")
+        ))
 
         # Verify isolation
-        alex_likes = store.get_liked_recipe_ids(user_id="alex")
-        caitlyn_likes = store.get_liked_recipe_ids(user_id="caitlyn")
+        alex_likes = store_alex.get_liked_recipe_ids()
+        caitlyn_likes = store_caitlyn.get_liked_recipe_ids()
 
         assert "recipe_1" in alex_likes
         assert "recipe_1" not in caitlyn_likes
@@ -152,35 +153,38 @@ class TestFeedbackIsolation:
 
     def test_dislikes_isolated_by_user(self, temp_db):
         """Dislikes are user-specific."""
-        store = FeedbackStore(temp_db)
+        store_alex = FeedbackStore(temp_db, username="alex")
+        store_caitlyn = FeedbackStore(temp_db, username="caitlyn")
 
         # Alex dislikes recipe_3
-        store.add_feedback(RecipeFeedback(
+        store_alex.add_feedback(RecipeFeedback(
             recipe_id="recipe_3",
             feedback_type="dislike",
             session_id="session1"
-        ), user_id="alex")
+        ))
 
         # Verify Caitlyn doesn't see it
-        alex_dislikes = store.get_disliked_recipe_ids(user_id="alex")
-        caitlyn_dislikes = store.get_disliked_recipe_ids(user_id="caitlyn")
+        alex_dislikes = store_alex.get_disliked_recipe_ids()
+        caitlyn_dislikes = store_caitlyn.get_disliked_recipe_ids()
 
         assert "recipe_3" in alex_dislikes
         assert "recipe_3" not in caitlyn_dislikes
 
-    def test_none_user_id_uses_guest(self, temp_db):
-        """Passing None for user_id should use 'guest'."""
+    def test_default_username_is_guest(self, temp_db):
+        """Default username should be 'guest'."""
         store = FeedbackStore(temp_db)
 
-        # Add feedback with None (should use guest)
+        # Add feedback with default user
         store.add_feedback(RecipeFeedback(
             recipe_id="recipe_1",
             feedback_type="like",
             session_id="session1"
-        ), user_id=None)
+        ))
 
         # Verify it's under guest
-        guest_likes = store.get_liked_recipe_ids(user_id="guest")
+        assert store.user == "guest"
+        guest_store = FeedbackStore(temp_db, username="guest")
+        guest_likes = guest_store.get_liked_recipe_ids()
         assert "recipe_1" in guest_likes
 
 
@@ -189,17 +193,18 @@ class TestRecipeBoxIsolation:
 
     def test_saved_recipes_isolated(self, temp_db):
         """Alex's saved recipes don't appear in Caitlyn's box."""
-        store = RecipeBoxStore(temp_db)
+        store_alex = RecipeBoxStore(temp_db, username="alex")
+        store_caitlyn = RecipeBoxStore(temp_db, username="caitlyn")
 
         # Alex saves recipe_1
-        store.save_recipe("recipe_1", "Chicken Tacos", user_id="alex")
+        store_alex.save_recipe("recipe_1", "Chicken Tacos")
 
         # Caitlyn saves recipe_2
-        store.save_recipe("recipe_2", "Pasta Carbonara", user_id="caitlyn")
+        store_caitlyn.save_recipe("recipe_2", "Pasta Carbonara")
 
         # Verify isolation
-        alex_box = store.get_saved_recipes(user_id="alex")
-        caitlyn_box = store.get_saved_recipes(user_id="caitlyn")
+        alex_box = store_alex.get_saved_recipes()
+        caitlyn_box = store_caitlyn.get_saved_recipes()
 
         alex_ids = {r.recipe_id for r in alex_box}
         caitlyn_ids = {r.recipe_id for r in caitlyn_box}
@@ -211,29 +216,31 @@ class TestRecipeBoxIsolation:
 
     def test_same_recipe_different_users(self, temp_db):
         """Same recipe can be saved by multiple users without conflict."""
-        store = RecipeBoxStore(temp_db)
+        store_alex = RecipeBoxStore(temp_db, username="alex")
+        store_caitlyn = RecipeBoxStore(temp_db, username="caitlyn")
 
         # Both users save the same recipe
-        store.save_recipe("recipe_1", "Chicken Tacos", user_id="alex")
-        store.save_recipe("recipe_1", "Chicken Tacos", user_id="caitlyn")
+        store_alex.save_recipe("recipe_1", "Chicken Tacos")
+        store_caitlyn.save_recipe("recipe_1", "Chicken Tacos")
 
         # Both should have it
-        alex_box = store.get_saved_recipes(user_id="alex")
-        caitlyn_box = store.get_saved_recipes(user_id="caitlyn")
+        alex_box = store_alex.get_saved_recipes()
+        caitlyn_box = store_caitlyn.get_saved_recipes()
 
         assert any(r.recipe_id == "recipe_1" for r in alex_box)
         assert any(r.recipe_id == "recipe_1" for r in caitlyn_box)
 
     def test_is_saved_isolated_by_user(self, temp_db):
         """is_saved checks are user-specific."""
-        store = RecipeBoxStore(temp_db)
+        store_alex = RecipeBoxStore(temp_db, username="alex")
+        store_caitlyn = RecipeBoxStore(temp_db, username="caitlyn")
 
         # Alex saves recipe_1
-        store.save_recipe("recipe_1", "Chicken Tacos", user_id="alex")
+        store_alex.save_recipe("recipe_1", "Chicken Tacos")
 
         # Check isolation
-        assert store.is_saved("recipe_1", user_id="alex") is True
-        assert store.is_saved("recipe_1", user_id="caitlyn") is False
+        assert store_alex.is_saved("recipe_1") is True
+        assert store_caitlyn.is_saved("recipe_1") is False
 
 
 class TestCrossUserProtection:
@@ -241,33 +248,35 @@ class TestCrossUserProtection:
 
     def test_cannot_unsave_another_users_recipe(self, temp_db):
         """Alex can't unsave a recipe from Caitlyn's box."""
-        store = RecipeBoxStore(temp_db)
+        store_alex = RecipeBoxStore(temp_db, username="alex")
+        store_caitlyn = RecipeBoxStore(temp_db, username="caitlyn")
 
         # Caitlyn saves recipe_1
-        store.save_recipe("recipe_1", "Chicken Tacos", user_id="caitlyn")
+        store_caitlyn.save_recipe("recipe_1", "Chicken Tacos")
 
         # Alex tries to unsave it (should fail/return False)
-        result = store.remove_recipe("recipe_1", user_id="alex")
+        result = store_alex.remove_recipe("recipe_1")
         assert result is False
 
         # Caitlyn's saved recipe should still exist
-        caitlyn_box = store.get_saved_recipes(user_id="caitlyn")
+        caitlyn_box = store_caitlyn.get_saved_recipes()
         assert any(r.recipe_id == "recipe_1" for r in caitlyn_box)
 
     def test_likes_dont_cross_users(self, temp_db):
         """Alex's like doesn't appear in Caitlyn's liked set."""
-        store = FeedbackStore(temp_db)
+        store_alex = FeedbackStore(temp_db, username="alex")
+        store_caitlyn = FeedbackStore(temp_db, username="caitlyn")
 
         # Alex likes many recipes
         for i in range(1, 4):
-            store.add_feedback(RecipeFeedback(
+            store_alex.add_feedback(RecipeFeedback(
                 recipe_id=f"recipe_{i}",
                 feedback_type="like",
                 session_id="session1"
-            ), user_id="alex")
+            ))
 
         # Caitlyn's likes should be empty
-        caitlyn_likes = store.get_liked_recipe_ids(user_id="caitlyn")
+        caitlyn_likes = store_caitlyn.get_liked_recipe_ids()
         assert len(caitlyn_likes) == 0
 
 
@@ -276,17 +285,18 @@ class TestHistoryIsolation:
 
     def test_history_isolated_by_user(self, temp_db):
         """Alex's cooking history doesn't appear in Caitlyn's."""
-        store = HistoryStore(temp_db)
+        store_alex = HistoryStore(temp_db, username="alex")
+        store_caitlyn = HistoryStore(temp_db, username="caitlyn")
 
         # Alex cooked recipe_1
-        store.add_cooked("recipe_1", user_id="alex")
+        store_alex.add_cooked("recipe_1")
 
         # Caitlyn cooked recipe_2
-        store.add_cooked("recipe_2", user_id="caitlyn")
+        store_caitlyn.add_cooked("recipe_2")
 
         # Verify isolation
-        alex_history = store.get_cooking_history(user_id="alex")
-        caitlyn_history = store.get_cooking_history(user_id="caitlyn")
+        alex_history = store_alex.get_cooking_history()
+        caitlyn_history = store_caitlyn.get_cooking_history()
 
         alex_ids = {h.recipe_id for h in alex_history}
         caitlyn_ids = {h.recipe_id for h in caitlyn_history}
@@ -298,32 +308,34 @@ class TestHistoryIsolation:
 
     def test_recently_cooked_isolated(self, temp_db):
         """Recently cooked exclusion is user-specific."""
-        store = HistoryStore(temp_db)
+        store_alex = HistoryStore(temp_db, username="alex")
+        store_caitlyn = HistoryStore(temp_db, username="caitlyn")
 
         # Alex cooked recipe_1
-        store.add_cooked("recipe_1", user_id="alex")
+        store_alex.add_cooked("recipe_1")
 
         # Verify isolation in recently cooked
-        alex_recent = store.get_recently_cooked_ids(days=7, user_id="alex")
-        caitlyn_recent = store.get_recently_cooked_ids(days=7, user_id="caitlyn")
+        alex_recent = store_alex.get_recently_cooked_ids(days=7)
+        caitlyn_recent = store_caitlyn.get_recently_cooked_ids(days=7)
 
         assert "recipe_1" in alex_recent
         assert "recipe_1" not in caitlyn_recent
 
     def test_cooking_count_isolated(self, temp_db):
         """Cooking count is user-specific."""
-        store = HistoryStore(temp_db)
+        store_alex = HistoryStore(temp_db, username="alex")
+        store_caitlyn = HistoryStore(temp_db, username="caitlyn")
 
         # Alex cooked recipe_1 twice
-        store.add_cooked("recipe_1", user_id="alex")
-        store.add_cooked("recipe_1", user_id="alex")
+        store_alex.add_cooked("recipe_1")
+        store_alex.add_cooked("recipe_1")
 
         # Caitlyn cooked recipe_1 once
-        store.add_cooked("recipe_1", user_id="caitlyn")
+        store_caitlyn.add_cooked("recipe_1")
 
         # Verify counts are isolated
-        assert store.get_cooking_count("recipe_1", user_id="alex") == 2
-        assert store.get_cooking_count("recipe_1", user_id="caitlyn") == 1
+        assert store_alex.get_cooking_count("recipe_1") == 2
+        assert store_caitlyn.get_cooking_count("recipe_1") == 1
 
 
 class TestSessionIsolation:
@@ -331,90 +343,144 @@ class TestSessionIsolation:
 
     def test_sessions_per_user(self, temp_db):
         """Each user gets their own session."""
-        store = SessionStore(temp_db)
+        store_alex = SessionStore(temp_db, username="alex")
+        store_caitlyn = SessionStore(temp_db, username="caitlyn")
 
         # Create sessions for different users
-        alex_session_id = store.create(user_id="alex")
-        caitlyn_session_id = store.create(user_id="caitlyn")
+        alex_session_id = store_alex.create()
+        caitlyn_session_id = store_caitlyn.create()
 
         # Sessions should be different
         assert alex_session_id != caitlyn_session_id
 
     def test_get_or_create_current_per_user(self, temp_db):
         """get_or_create_current returns user-specific session."""
-        store = SessionStore(temp_db)
+        store_alex = SessionStore(temp_db, username="alex")
 
         # Get or create for Alex
-        alex_id1, _ = store.get_or_create_current(user_id="alex")
-        alex_id2, _ = store.get_or_create_current(user_id="alex")
+        alex_id1, _ = store_alex.get_or_create_current()
+        alex_id2, _ = store_alex.get_or_create_current()
 
         # Should return same session for Alex
         assert alex_id1 == alex_id2
 
         # Get or create for Caitlyn
-        caitlyn_id, _ = store.get_or_create_current(user_id="caitlyn")
+        store_caitlyn = SessionStore(temp_db, username="caitlyn")
+        caitlyn_id, _ = store_caitlyn.get_or_create_current()
 
         # Should be different from Alex's
         assert caitlyn_id != alex_id1
 
 
 class TestDefaultGuestFallback:
-    """Test that None user_id defaults to guest across all stores."""
+    """Test that default username is 'guest' across all stores."""
 
-    def test_profile_none_uses_guest(self, temp_db):
-        """ProfileStore: None user_id uses guest."""
+    def test_profile_default_is_guest(self, temp_db):
+        """ProfileStore: default username is guest."""
         store = ProfileStore(temp_db)
 
-        # Save with None
-        store.save(PreferenceProfile(spice_level="hot"), user_id=None)
+        # Verify user property
+        assert store.user == "guest"
 
-        # Load with "guest" explicitly
-        profile = store.load(user_id="guest")
+        # Save with default store
+        store.save(PreferenceProfile(spice_level="hot"))
+
+        # Load with explicit guest should see it
+        guest_store = ProfileStore(temp_db, username="guest")
+        profile = guest_store.load()
         assert profile.spice_level == "hot"
 
-    def test_feedback_none_uses_guest(self, temp_db):
-        """FeedbackStore: None user_id uses guest."""
+    def test_feedback_default_is_guest(self, temp_db):
+        """FeedbackStore: default username is guest."""
         store = FeedbackStore(temp_db)
+        assert store.user == "guest"
 
         store.add_feedback(RecipeFeedback(
             recipe_id="recipe_1",
             feedback_type="like",
             session_id="session1"
-        ), user_id=None)
+        ))
 
         # Should appear under guest
-        likes = store.get_liked_recipe_ids(user_id="guest")
+        guest_store = FeedbackStore(temp_db, username="guest")
+        likes = guest_store.get_liked_recipe_ids()
         assert "recipe_1" in likes
 
-    def test_recipe_box_none_uses_guest(self, temp_db):
-        """RecipeBoxStore: None user_id uses guest."""
+    def test_recipe_box_default_is_guest(self, temp_db):
+        """RecipeBoxStore: default username is guest."""
         store = RecipeBoxStore(temp_db)
+        assert store.user == "guest"
 
-        store.save_recipe("recipe_1", "Chicken Tacos", user_id=None)
+        store.save_recipe("recipe_1", "Chicken Tacos")
 
         # Should appear under guest
-        box = store.get_saved_recipes(user_id="guest")
+        guest_store = RecipeBoxStore(temp_db, username="guest")
+        box = guest_store.get_saved_recipes()
         assert any(r.recipe_id == "recipe_1" for r in box)
 
-    def test_history_none_uses_guest(self, temp_db):
-        """HistoryStore: None user_id uses guest."""
+    def test_history_default_is_guest(self, temp_db):
+        """HistoryStore: default username is guest."""
         store = HistoryStore(temp_db)
+        assert store.user == "guest"
 
-        store.add_cooked("recipe_1", user_id=None)
+        store.add_cooked("recipe_1")
 
         # Should appear under guest
-        history = store.get_cooking_history(user_id="guest")
+        guest_store = HistoryStore(temp_db, username="guest")
+        history = guest_store.get_cooking_history()
         assert any(h.recipe_id == "recipe_1" for h in history)
 
-    def test_session_none_uses_guest(self, temp_db):
-        """SessionStore: None user_id uses guest."""
+    def test_session_default_is_guest(self, temp_db):
+        """SessionStore: default username is guest."""
         store = SessionStore(temp_db)
+        assert store.user == "guest"
 
-        session_id = store.create(user_id=None)
+        session_id = store.create()
 
         # Should be retrievable for guest
-        session_id2, _ = store.get_or_create_current(user_id="guest")
+        guest_store = SessionStore(temp_db, username="guest")
+        session_id2, _ = guest_store.get_or_create_current()
         assert session_id == session_id2
+
+
+class TestUserPropertyReadOnly:
+    """Test that user property is read-only."""
+
+    def test_profile_user_readonly(self, temp_db):
+        """Cannot assign to ProfileStore.user after init."""
+        store = ProfileStore(temp_db, username="alex")
+        with pytest.raises(AttributeError):
+            store.user = "caitlyn"
+
+    def test_feedback_user_readonly(self, temp_db):
+        """Cannot assign to FeedbackStore.user after init."""
+        store = FeedbackStore(temp_db, username="alex")
+        with pytest.raises(AttributeError):
+            store.user = "caitlyn"
+
+    def test_history_user_readonly(self, temp_db):
+        """Cannot assign to HistoryStore.user after init."""
+        store = HistoryStore(temp_db, username="alex")
+        with pytest.raises(AttributeError):
+            store.user = "caitlyn"
+
+    def test_recipe_box_user_readonly(self, temp_db):
+        """Cannot assign to RecipeBoxStore.user after init."""
+        store = RecipeBoxStore(temp_db, username="alex")
+        with pytest.raises(AttributeError):
+            store.user = "caitlyn"
+
+    def test_session_user_readonly(self, temp_db):
+        """Cannot assign to SessionStore.user after init."""
+        store = SessionStore(temp_db, username="alex")
+        with pytest.raises(AttributeError):
+            store.user = "caitlyn"
+
+    def test_meal_plan_user_readonly(self, temp_db):
+        """Cannot assign to MealPlanStore.user after init."""
+        store = MealPlanStore(temp_db, username="alex")
+        with pytest.raises(AttributeError):
+            store.user = "caitlyn"
 
 
 class TestSchemaMigration:
@@ -447,10 +513,10 @@ class TestSchemaMigration:
         conn.close()
 
         # Initialize store (triggers migration)
-        store = ProfileStore(db_path)
+        store = ProfileStore(db_path, username="guest")
 
         # Old data should be under 'guest'
-        profile = store.load(user_id="guest")
+        profile = store.load()
         assert profile.spice_level == "hot"
         assert profile.diet == "vegetarian"
 
@@ -478,8 +544,8 @@ class TestSchemaMigration:
         conn.close()
 
         # Initialize store (triggers migration)
-        store = RecipeBoxStore(db_path)
+        store = RecipeBoxStore(db_path, username="guest")
 
         # Old data should be under 'guest'
-        box = store.get_saved_recipes(user_id="guest")
+        box = store.get_saved_recipes()
         assert any(r.recipe_id == "old_recipe" for r in box)

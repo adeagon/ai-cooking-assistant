@@ -16,18 +16,25 @@ logger = get_logger(__name__)
 class RecipeBoxStore:
     """Manages persistent storage of saved recipes in SQLite.
 
-    Each user has their own Recipe Box, allowing the same recipe to be
-    saved by multiple users.
+    Each store instance is bound to a specific user at instantiation.
+    The user cannot be changed after initialization.
     """
 
-    def __init__(self, db_path: Path):
-        """Initialize RecipeBoxStore with database path.
+    def __init__(self, db_path: Path, username: str = "guest"):
+        """Initialize RecipeBoxStore bound to a specific user.
 
         Args:
             db_path: Path to SQLite database file
+            username: Username this store is bound to (default: "guest")
         """
         self.db_path = db_path
+        self._user = username
         self._ensure_table()
+
+    @property
+    def user(self) -> str:
+        """Read-only access to bound username."""
+        return self._user
 
     def _ensure_table(self) -> None:
         """Create saved recipes table and index if they don't exist.
@@ -115,14 +122,13 @@ class RecipeBoxStore:
 
         logger.info("Saved recipes table ensured", db_path=str(self.db_path))
 
-    def save_recipe(self, recipe_id: str, title: str, notes: str | None = None, user_id: str | None = None) -> int:
+    def save_recipe(self, recipe_id: str, title: str, notes: str | None = None) -> int:
         """Save a recipe to the Recipe Box.
 
         Args:
             recipe_id: Recipe ID to save
             title: Recipe title (for display without DB join)
             notes: Optional user notes about the recipe
-            user_id: Username to save for. Defaults to 'guest' if None.
 
         Returns:
             ID of the inserted saved recipe record
@@ -130,9 +136,6 @@ class RecipeBoxStore:
         Raises:
             sqlite3.IntegrityError: If recipe is already saved by this user
         """
-        # Default to guest if no user_id provided
-        username = user_id or "guest"
-
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
@@ -142,34 +145,30 @@ class RecipeBoxStore:
                 INSERT INTO saved_recipes (username, recipe_id, title, saved_at, notes)
                 VALUES (?, ?, ?, ?, ?)
                 """,
-                (username, recipe_id, title, datetime.now(), notes),
+                (self.user, recipe_id, title, datetime.now(), notes),
             )
 
             saved_id = cursor.lastrowid
             conn.commit()
 
-            logger.info("Saved recipe to box", saved_id=saved_id, recipe_id=recipe_id, username=username)
+            logger.info("Saved recipe to box", saved_id=saved_id, recipe_id=recipe_id, user=self.user)
             return saved_id
 
         except sqlite3.IntegrityError as e:
-            logger.warning("Recipe already saved", recipe_id=recipe_id, username=username)
+            logger.warning("Recipe already saved", recipe_id=recipe_id, user=self.user)
             raise e
         finally:
             conn.close()
 
-    def get_saved_recipes(self, limit: int = 50, user_id: str | None = None) -> list[SavedRecipe]:
+    def get_saved_recipes(self, limit: int = 50) -> list[SavedRecipe]:
         """Get saved recipes from the Recipe Box.
 
         Args:
             limit: Maximum number of saved recipes to return
-            user_id: Username to get recipes for. Defaults to 'guest' if None.
 
         Returns:
             List of SavedRecipe objects, most recently saved first
         """
-        # Default to guest if no user_id provided
-        username = user_id or "guest"
-
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
@@ -182,7 +181,7 @@ class RecipeBoxStore:
             ORDER BY saved_at DESC
             LIMIT ?
             """,
-            (username, limit),
+            (self.user, limit),
         )
 
         saved_recipes = [
@@ -200,19 +199,15 @@ class RecipeBoxStore:
 
         return saved_recipes
 
-    def remove_recipe(self, recipe_id: str, user_id: str | None = None) -> bool:
+    def remove_recipe(self, recipe_id: str) -> bool:
         """Remove a recipe from the Recipe Box.
 
         Args:
             recipe_id: Recipe ID to remove
-            user_id: Username to remove for. Defaults to 'guest' if None.
 
         Returns:
             True if recipe was removed, False if not found
         """
-        # Default to guest if no user_id provided
-        username = user_id or "guest"
-
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
@@ -221,7 +216,7 @@ class RecipeBoxStore:
             DELETE FROM saved_recipes
             WHERE recipe_id = ? AND username = ?
             """,
-            (recipe_id, username),
+            (recipe_id, self.user),
         )
 
         rows_affected = cursor.rowcount
@@ -229,25 +224,21 @@ class RecipeBoxStore:
         conn.close()
 
         if rows_affected > 0:
-            logger.info("Removed recipe from box", recipe_id=recipe_id, username=username)
+            logger.info("Removed recipe from box", recipe_id=recipe_id, user=self.user)
             return True
         else:
-            logger.warning("Recipe not found in box", recipe_id=recipe_id, username=username)
+            logger.warning("Recipe not found in box", recipe_id=recipe_id, user=self.user)
             return False
 
-    def is_saved(self, recipe_id: str, user_id: str | None = None) -> bool:
+    def is_saved(self, recipe_id: str) -> bool:
         """Check if a recipe is saved in the Recipe Box.
 
         Args:
             recipe_id: Recipe ID to check
-            user_id: Username to check for. Defaults to 'guest' if None.
 
         Returns:
             True if recipe is saved, False otherwise
         """
-        # Default to guest if no user_id provided
-        username = user_id or "guest"
-
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
@@ -257,7 +248,7 @@ class RecipeBoxStore:
             FROM saved_recipes
             WHERE recipe_id = ? AND username = ?
             """,
-            (recipe_id, username),
+            (recipe_id, self.user),
         )
 
         result = cursor.fetchone()

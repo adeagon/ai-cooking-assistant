@@ -96,7 +96,15 @@ Local Recipe Assistant: A fully-local, interactive dinner-planning assistant usi
   - **Natural language entry**: "plan my meals for the week", "help me plan 5 dinners"
   - **Constraint extraction**: Days, dietary restrictions, time limits, exclusions with audit trail
   - **Category exclusions**: Exclude dairy, meat, seafood, nuts, gluten categories
-  - All 545 tests passing (15 new meal planning integration tests)
+- ✅ **Multi-User Support**: Complete user isolation with user-bound stores
+  - **User identity tracking**: `/login <username>` command to switch users (Phase 1)
+  - **Data isolation**: All stores filter by `username` column - users cannot see each other's data (Phase 2)
+  - **User-bound store instances**: Stores bind to username at instantiation (Phase 3)
+  - **StoreFactory pattern**: Centralized factory creates and caches user-scoped stores
+  - **Immutable user binding**: `store.user` is read-only to prevent mid-session mutation
+  - **BaseUserBoundStore**: Abstract base class for consistent store initialization
+  - **UserStores dataclass**: Container for all 6 store types (profile, feedback, history, recipe_box, session, meal_plan)
+  - All 635 tests passing (49 new multi-user/store factory tests)
 
 ## Pending Tasks
 
@@ -152,6 +160,7 @@ python -m src.app.cli search "chicken tomato spicy"
 
 # Run CLI chat (Phase 4+)
 python -m src.app.cli chat
+python -m src.app.cli chat --user alex  # Start as specific user
 
 # Phase 5 CLI commands (in chat mode) - use slash commands OR natural language:
 # /like <ref>     - Like a recipe (or "I loved that one")
@@ -169,6 +178,10 @@ python -m src.app.cli chat
 # /plan           - Show current meal plan (or "show my plan")
 # /grocery        - Generate grocery list from meal plan (or "grocery list")
 
+# Multi-User commands (in chat mode):
+# /login <user>   - Switch to a different user (or "login as alex")
+# /whoami         - Show current user
+
 # Run tests
 pytest
 
@@ -177,6 +190,9 @@ pytest tests/test_feedback.py tests/test_history.py tests/test_feedback_integrat
 
 # Run meal planning tests
 pytest tests/test_meal_plan*.py tests/test_ingredient*.py tests/test_grocery*.py -v
+
+# Run multi-user isolation tests
+pytest tests/test_multi_user_isolation.py tests/test_store_factory.py -v
 
 # Run LLM integration tests (requires Ollama running)
 pytest tests/test_llm_chat_phase5.py -v -s -m llm
@@ -219,13 +235,16 @@ python scripts/test_meal_planning_conversation.py  # Test meal planning flow (8 
 
 3. **LLM Layer** (`src/llm/`): Abstracted client interface (`LLMClient`) with Ollama implementation. Enables runtime swapping.
 
-4. **Memory System** (`src/memory/`): Multi-layer memory and personalization:
+4. **Memory System** (`src/memory/`): Multi-layer memory and personalization with multi-user support:
+   - **StoreFactory**: Creates and caches user-scoped store instances
+   - **BaseUserBoundStore**: Abstract base class - all stores bind to username at init
+   - **UserStores**: Dataclass container for all 6 store types per user
    - **ProfileStore**: Pinned preferences (persistent, structured in SQLite)
    - **SessionStore**: Session constraints (per dinner-planning session)
    - **RollingSummarizer**: Rolling summary (1-3 sentences updated each turn)
-   - **FeedbackStore**: Recipe feedback (likes, dislikes, ratings) and cuisine learning (Phase 5)
-   - **HistoryStore**: Cooking history with date-based filtering (Phase 5)
-   - **RecipeBoxStore**: Saved/bookmarked recipes for later reference (no exclusion from recommendations)
+   - **FeedbackStore**: Recipe feedback (likes, dislikes, ratings) and cuisine learning
+   - **HistoryStore**: Cooking history with date-based filtering
+   - **RecipeBoxStore**: Saved/bookmarked recipes for later reference
    - **MealPlanStore**: Meal plan persistence with planned meals and grocery lists
 
 5. **Planning System** (`src/planning/`): Deterministic meal planning:
@@ -364,3 +383,29 @@ Log at each turn:
 - sentence-transformers automatically uses GPU when available
 - For RTX 5090 (Blackwell), use PyTorch nightly with CUDA 12.8+
 - See `docs/GPU_SETUP.md` for detailed setup
+
+### Multi-User Store Architecture
+All store classes are **user-bound** - they bind to a specific username at instantiation and cannot change users mid-session.
+
+**Key conventions**:
+1. Use `StoreFactory.get_stores(username)` to get all stores for a user
+2. Store instances are cached - switching users reuses existing instances
+3. `store.user` is read-only to prevent accidental user-switching bugs
+4. All stores extend `BaseUserBoundStore` for consistent initialization
+5. On user switch, get new stores from factory and reset session state
+
+**API pattern**:
+```python
+# Create factory once
+factory = StoreFactory(db_path)
+
+# Get stores for a user (cached)
+stores = factory.get_stores("alex")
+stores.profile.save(profile)      # No user_id parameter needed
+stores.feedback.add_feedback(fb)  # Automatically uses bound user
+
+# Switch users
+stores = factory.get_stores("caitlyn")  # Gets/creates caitlyn's stores
+```
+
+**Thread safety**: Each store opens its own SQLite connection. For high-concurrency scenarios, consider connection pooling.
