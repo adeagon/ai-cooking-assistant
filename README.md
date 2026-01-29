@@ -15,9 +15,11 @@ Local recipe assistant using RAG (Retrieval-Augmented Generation) with Qwen 3 14
 - ✅ **Hybrid LLM**: Selective thinking mode - thoughtful clarification, fast recommendations
 - ✅ **Meal Planning**: Plan meals for the week with ingredient overlap optimization
 - ✅ **Multi-User Support**: Complete user isolation with `/login`, `/logout`, `/whoami` commands
+- ✅ **Web App**: Local web interface accessible on home network (FastAPI + modern chat UI)
 
 ## Features
 
+- **Web Interface**: Modern chat UI accessible from any device on your home network
 - **Conversational Interface**: Natural language chat powered by Qwen 3 14B (Phase 4)
 - **Smart Recommendations**: Recommends real recipes from Food.com dataset (88K+ indexed)
 - **Multi-User Support**: Multiple users with complete data isolation (`/login`, `/logout`, `/whoami`)
@@ -50,7 +52,8 @@ Local recipe assistant using RAG (Retrieval-Augmented Generation) with Qwen 3 14
 - **GPU**: PyTorch 2.11 nightly with native RTX 5090 support
 - **Reranker**: cross-encoder (ms-marco-MiniLM-L-6-v2, GPU-accelerated)
 - **Framework**: LangChain (LCEL chains)
-- **Database**: SQLite for recipes and user state
+- **Web**: FastAPI with SSE streaming, Jinja2 templates
+- **Database**: SQLite for recipes, user state, and web sessions
 - **CLI**: Typer
 
 ## Requirements
@@ -143,6 +146,31 @@ OLLAMA_INTENT_MODEL=intent-classifier
 If you skip this step, the app will use `qwen3:14b` directly (works but with less optimized behavior).
 
 ## Usage
+
+### Web App (Recommended)
+
+The web app provides a modern chat interface accessible from any device on your network:
+
+```bash
+# Install web dependencies
+pip install -e ".[web,ml]"
+
+# Start the web server
+uvicorn src.web.app:app --host 0.0.0.0 --port 8000 --reload
+```
+
+Then open `http://localhost:8000` in your browser (or use your computer's IP address from other devices).
+
+**Web App Features:**
+- Modern chat interface with SSE streaming
+- Conversation persistence (survives server restarts)
+- Multi-user support with login/logout
+- Recipe cards with ratings, time, and ingredients
+- Conversation history sidebar
+- Mobile-responsive design
+- Works on any device on your home network
+
+**Default Users:** alex, jordan, taylor, casey
 
 ### Search Recipes
 
@@ -254,8 +282,11 @@ You: /logout
 ### Run Tests
 
 ```bash
-# Run all tests (648 tests total)
+# Run all tests (727+ tests total)
 pytest
+
+# Run web app tests (79 tests)
+pytest tests/web/ -v
 
 # Run retrieval tests (including metadata filtering)
 pytest tests/test_retrieval*.py -v
@@ -289,7 +320,8 @@ pytest --cov=src
 ```
 
 **Test Suite**:
-- **648 total tests** (all passing)
+- **727+ total tests** (all passing)
+- **Web App Tests (79)**: Services (user, session, conversation), API endpoints (auth, conversations), Playwright E2E structure
 - **Multi-User Tests (95 unit + 34 conversation)**:
   - User identity tracking (`/login`, `/logout`, `/whoami`)
   - Data isolation across all 6 stores (profile, feedback, history, recipe_box, session, meal_plan)
@@ -393,6 +425,16 @@ ai-cooking-assistant/
 │   │   ├── cli.py           # Typer CLI with multi-user support
 │   │   ├── settings.py      # Pydantic settings
 │   │   └── user_context.py  # UserContext and UserRegistry
+│   ├── web/          # Web application (FastAPI)
+│   │   ├── app.py           # FastAPI application factory
+│   │   ├── config.py        # Web-specific settings
+│   │   ├── db.py            # SQLite schema and connection
+│   │   ├── dependencies.py  # FastAPI dependencies
+│   │   ├── models.py        # Pydantic API models
+│   │   ├── routers/         # API endpoints (auth, chat, conversations)
+│   │   ├── services/        # Business logic (user, session, chat)
+│   │   ├── static/          # CSS and JavaScript
+│   │   └── templates/       # Jinja2 HTML templates
 │   ├── domain/       # Pydantic models
 │   ├── ingest/       # Data ingestion pipeline
 │   ├── retrieval/    # Vector search and retrieval

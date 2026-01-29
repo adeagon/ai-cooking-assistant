@@ -16,10 +16,11 @@ Local Recipe Assistant: A fully-local, interactive dinner-planning assistant usi
 - **GPU**: PyTorch 2.11 nightly with native RTX 5090 support (CUDA 12.8)
 - **Reranker**: cross-encoder (`ms-marco-MiniLM-L-6-v2` or `BAAI/bge-reranker-base`)
 - **Framework**: LangChain (LCEL chains)
-- **Database**: SQLite for recipes and user state
+- **Web**: FastAPI with SSE streaming, Jinja2 templates, sse-starlette
+- **Database**: SQLite for recipes, user state, and web sessions
 - **CLI**: typer
 - **Config**: pydantic-settings
-- **Testing**: pytest
+- **Testing**: pytest, Playwright (E2E)
 
 ## Current Status
 
@@ -108,6 +109,16 @@ Local Recipe Assistant: A fully-local, interactive dinner-planning assistant usi
   - **Complete test coverage** (Phase 5): MealPlanStore isolation tests, FeedbackStore cuisine preference isolation, SessionStore cross-user protection
   - **Conversation-level tests** (Phase 6): End-to-end multi-user conversation tests with Ollama
   - All 648 unit tests passing (95 multi-user unit tests) + 34 conversation tests (100% pass)
+- ✅ **Web App**: Local web interface accessible on home network
+  - **FastAPI backend**: REST API with SSE streaming for chat
+  - **SQLite-backed sessions**: 30-day cookie sessions with revoke semantics
+  - **User management**: UUID-based users mapped to existing username stores
+  - **Conversation persistence**: Messages stored with recipe card metadata
+  - **Modern chat UI**: Fraunces/DM Sans typography, terracotta/cream palette
+  - **Recipe cards**: Display ratings, time, ingredients, match explanations
+  - **Responsive design**: Works on desktop and mobile
+  - **79 web tests**: Services (49), API endpoints (30), Playwright E2E structure
+  - All 727+ tests passing
 
 ## Pending Tasks
 
@@ -165,6 +176,10 @@ python -m src.app.cli search "chicken tomato spicy"
 python -m src.app.cli chat
 python -m src.app.cli chat --user alex  # Start as specific user
 
+# Run web app (recommended for multi-device access)
+pip install -e ".[web,ml]"
+uvicorn src.web.app:app --host 0.0.0.0 --port 8000 --reload
+
 # Phase 5 CLI commands (in chat mode) - use slash commands OR natural language:
 # /like <ref>     - Like a recipe (or "I loved that one")
 # /dislike <ref>  - Dislike a recipe (or "didn't like it")
@@ -208,6 +223,18 @@ pytest tests/test_retrieval*.py -v
 
 # Run with verbose output
 pytest -v
+
+# Run web app tests (79 tests)
+pytest tests/web/ -v
+
+# Run web service tests only
+pytest tests/web/test_user_service.py tests/web/test_session_service.py tests/web/test_conversation_service.py -v
+
+# Run web API tests only
+pytest tests/web/test_api_auth.py tests/web/test_api_conversations.py -v
+
+# Run Playwright E2E tests (requires running server)
+pytest tests/web/e2e/ -v
 
 # Recipe classification (optional, enhances search for taste/occasion/cuisine)
 # Step 1: Apply deterministic ingredient rules for vegetarian/vegan (~2 min)
@@ -265,7 +292,15 @@ python scripts/test_multi_user_conversation.py     # Test multi-user isolation (
 
 6. **CLI App** (`src/app/`): Typer-based conversational interface.
 
-7. **Utilities** (`src/utils/`): Shared utilities for the application:
+7. **Web App** (`src/web/`): FastAPI-based web interface:
+   - **app.py**: Application factory with lifespan events
+   - **db.py**: SQLite schema (users, web_sessions, conversations, messages)
+   - **services/**: UserService, SessionService, ConversationService, ChatService
+   - **routers/**: API endpoints for auth, chat, conversations, health
+   - **static/**: CSS (Fraunces/DM Sans fonts, terracotta palette) and JavaScript (SSE handling)
+   - **templates/**: Jinja2 templates for chat UI
+
+8. **Utilities** (`src/utils/`): Shared utilities for the application:
    - **tag_loader**: Loads valid cuisines and goals from recipe database with LRU caching
    - Provides fallback mappings for user-friendly terms (light→low-calorie, etc.)
 
@@ -330,6 +365,32 @@ Validate response (fallback if empty)
 Display response + capture recipe cards for commands
 ```
 
+**Web App Data Flow**:
+```
+Browser (Chat UI)
+       │ HTTP/SSE
+       ▼
+FastAPI Server (0.0.0.0:8000)
+  ├── SQLite-backed sessions (web_sessions table)
+  ├── REST API endpoints
+  └── SSE streaming (POST /api/chat/stream)
+       │
+       ▼
+Existing Components (reused)
+  ├── StoreFactory → UserStores (keyed by username via UserService mapping)
+  ├── ChatChain (LangChain LCEL)
+  ├── IntentClassifier
+  └── Retrieval Pipeline
+       │
+       ▼
+SQLite (Single Source of Truth)
+  ├── users (UUID id, username unique)
+  ├── web_sessions (with revoked_at for logout)
+  ├── conversations (per-user chat threads)
+  ├── messages (with meta_json for recipe cards)
+  └── existing tables (profiles, feedback, etc.)
+```
+
 ### Key Design Constraints
 
 - **Tight context**: RecipeCards are compact (120-250 tokens each) - never dump full recipes into LLM prompt during recommendation
@@ -342,7 +403,38 @@ Display response + capture recipe cards for commands
 - `data/raw/`: Downloaded datasets (not in git)
 - `data/processed/`: Normalized recipes (jsonl/parquet)
 - `data/chroma/`: Persistent vector DB
-- `data/sqlite/`: SQLite database (app.db)
+- `data/sqlite/`: SQLite database (app.db for web, recipes.db for CLI)
+
+## Web API Endpoints
+
+### Auth
+- `GET /api/users` - List available users
+- `POST /api/auth/login` - Login, sets 30-day cookie, returns user
+- `POST /api/auth/logout` - Revokes current session only (from cookie), clears cookie
+- `GET /api/auth/whoami` - Current user (401 if invalid/revoked session)
+
+### Chat
+- `POST /api/chat` - Non-streaming (calls stream internally, buffers)
+- `POST /api/chat/stream` - SSE streaming (source of truth)
+
+Both accept: `{"message": "quick chicken recipes", "conversation_id": "optional"}`
+
+### Conversations
+- `GET /api/conversations` - List user's conversations (sorted by last_message_at desc)
+- `POST /api/conversations` - Create new conversation
+- `GET /api/conversations/{id}/messages` - Get messages
+- `POST /api/conversations/{id}/archive` - Soft-delete conversation
+
+### Health
+- `GET /api/health` - Health check
+
+### SSE Event Format
+```python
+yield ServerSentEvent(event="token", data=json.dumps({"content": "Here are"}))
+yield ServerSentEvent(event="cards", data=json.dumps({"cards": [...]}))
+yield ServerSentEvent(event="done", data=json.dumps({"conversation_id": "uuid", "message_id": "uuid", "meta": {...}}))
+yield ServerSentEvent(event="error", data=json.dumps({"error": {"message": "...", "code": "..."}}))
+```
 
 ## Core Domain Models (Pydantic)
 
@@ -418,3 +510,36 @@ stores = factory.get_stores("caitlyn")  # Gets/creates caitlyn's stores
 ```
 
 **Thread safety**: Each store opens its own SQLite connection. For high-concurrency scenarios, consider connection pooling.
+
+### Web App Architecture
+The web app uses a separate SQLite database (`data/sqlite/app.db`) for web-specific data (users, sessions, conversations, messages) while reusing the existing StoreFactory for recipe-related stores.
+
+**Key conventions**:
+1. Web users have UUID `id` and `username` - UserService maps UUID→username for StoreFactory
+2. Sessions use cookie-based auth with 30-day expiry and revoke semantics
+3. Conversations are per-user (not per-session) so multiple devices see same history
+4. ChatService wraps existing ChatChain with SSE streaming and message persistence
+
+**API pattern**:
+```python
+# UserService maps web UUID to username for StoreFactory
+username = user_service.get_username(user.id)  # UUID → "alex"
+stores = store_factory.get_stores(username)     # Existing StoreFactory API
+
+# ChatService uses stores for recipe operations
+async for event_type, data in chat_service.stream_message(message, user):
+    yield ServerSentEvent(event=event_type, data=json.dumps(data))
+```
+
+**Cookie configuration**:
+```python
+response.set_cookie(
+    key="aca_session",
+    value=session_id,
+    max_age=2592000,        # 30 days
+    path="/",
+    samesite="lax",
+    httponly=True,
+    secure=False,           # HTTP on LAN (no HTTPS)
+)
+```
