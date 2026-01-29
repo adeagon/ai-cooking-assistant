@@ -122,7 +122,11 @@ Local Recipe Assistant: A fully-local, interactive dinner-planning assistant usi
 
 ## Pending Tasks
 
-None - all planned features complete.
+- **Web App E2E Testing**: Playwright E2E tests are written but not yet executed. Need to:
+  1. Install Playwright: `pip install playwright && playwright install chromium`
+  2. Start web server: `uvicorn src.web.app:app --host 0.0.0.0 --port 8000`
+  3. Run E2E tests: `pytest tests/web/e2e/ -v` (need to remove skipif first)
+  4. Manual testing of web app in browser
 
 ## Completed Classifications
 
