@@ -17,18 +17,32 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0", "pytest-asyncio>=0.21", "ruff>=0.1"]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+    "ruff>=0.1",
+    "playwright>=1.40",
+    "pytest-playwright>=0.4",
+]
 ml = [
     "chromadb>=0.4.13",
     "sentence-transformers>=2.2",
     "langchain>=0.3",
     "langchain-community>=0.3",
     "langchain-core>=0.3",
+    "langchain-ollama>=0.2",
     "rank-bm25>=0.2",
     "ingredient-parser-nlp>=0.1",
     "sqlalchemy>=2.0",
     "kaggle>=1.5",
     "pandas>=2.0",
+]
+web = [
+    "fastapi>=0.109",
+    "uvicorn[standard]>=0.27",
+    "jinja2>=3.1",
+    "python-multipart>=0.0.6",
+    "sse-starlette>=1.6",
 ]
 
 [project.scripts]
